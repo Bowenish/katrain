@@ -463,6 +463,10 @@ class Game(BaseGame):
             # forced, or not present, or something went wrong in loading
             if even_if_present or not node.analysis_from_sgf or not node.load_analysis():
                 node.clear_analysis()
+                if self.region_of_interest:
+                    # region queries never set rootInfo, so pair with a normal query or
+                    # analysis_exists stays False and best-move points don't show (see reset_current_analysis)
+                    node.analyze(self.engines[node.next_player], priority=priority, analyze_fast=True)
                 node.analyze(self.engines[node.next_player], priority=priority, analyze_fast=analyze_fast,
                              region_of_interest=self.region_of_interest)
 
@@ -487,6 +491,11 @@ class Game(BaseGame):
         engine = self.engines[cn.next_player]
         engine.terminate_queries(cn)
         cn.clear_analysis()
+        if self.region_of_interest:
+            # A region query only adds local candidate moves; it never sets rootInfo
+            # (see GameNode.set_analysis), so on its own analysis_exists stays False and the
+            # best-move points won't display. Pair it with a normal full-board query, like play().
+            cn.analyze(engine, analyze_fast=True)
         cn.analyze(engine, region_of_interest=self.region_of_interest)
 
     def redo(self, n_times=1, stop_on_mistake=None):

@@ -137,6 +137,7 @@ class KaTrainGui(Screen, KaTrainBase):
 
         self.pondering = False
         self.peek_hints = False   # hold Shift -> temporarily show best-move hints (最佳选点)
+        self.peek_policy = False  # hold Ctrl -> temporarily show policy (自定义下最佳选点)
 
         self.animate_contributing = False
         self.message_queue = Queue()
@@ -236,6 +237,10 @@ class KaTrainGui(Screen, KaTrainBase):
             self.last_focus_event = time.time()
             if self.peek_hints:   # a held Shift's key-up can be lost on focus change -> clear the peek
                 self.peek_hints = False
+                self.board_gui.redraw_hover_contents_trigger()
+            if self.peek_policy:  # same for a held Ctrl
+                self.peek_policy = False
+                self.board_gui.redraw_board_contents_trigger()
                 self.board_gui.redraw_hover_contents_trigger()
 
         MDApp.get_running_app().root_window.bind(focus=set_focus_event)
@@ -593,6 +598,10 @@ class KaTrainGui(Screen, KaTrainBase):
                 analysis_region[1][0],
             ]
             self.game.set_region_of_interest(flattened_region)
+        if self.game.region_of_interest:
+            # region queries never set rootInfo, so a normal query is needed for the
+            # best-move points to display (see KaTrainGame.reset_current_analysis)
+            node.analyze(self.game.engines[node.next_player])
         node.analyze(self.game.engines[node.next_player], region_of_interest=self.game.region_of_interest)
         self.update_state(redraw_board=True)
 
@@ -1058,6 +1067,12 @@ class KaTrainGui(Screen, KaTrainBase):
                 self.peek_hints = True
                 self.board_gui.redraw_hover_contents_trigger()
             return
+        if keycode[1] in ("lctrl", "rctrl", "ctrl"):   # hold Ctrl -> peek policy (自定义下最佳选点)
+            if not self.peek_policy:
+                self.peek_policy = True
+                self.board_gui.redraw_board_contents_trigger()  # policy overlay lives on the board canvas
+                self.board_gui.redraw_hover_contents_trigger()  # and hides hints, like the policy toggle
+            return
         popup = self.popup_open
         if popup:
             if keycode[1] in [
@@ -1176,6 +1191,10 @@ class KaTrainGui(Screen, KaTrainBase):
     def _on_keyboard_up(self, _keyboard, keycode):
         if keycode[1] in ("shift", "rshift") and self.peek_hints:   # release Shift -> hide peeked hints
             self.peek_hints = False
+            self.board_gui.redraw_hover_contents_trigger()
+        if keycode[1] in ("lctrl", "rctrl", "ctrl") and self.peek_policy:   # release Ctrl -> hide peeked policy
+            self.peek_policy = False
+            self.board_gui.redraw_board_contents_trigger()
             self.board_gui.redraw_hover_contents_trigger()
         if keycode[1] in ["alt", "tab"]:
             Clock.schedule_once(lambda *_args: self._single_key_action(keycode), 0.05)

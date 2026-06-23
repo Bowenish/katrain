@@ -714,7 +714,7 @@ class BadukPanWidget(Widget):
 
             pass_btn = katrain.board_controls.pass_btn
             pass_btn.canvas.after.clear()
-            if katrain.analysis_controls.policy.active and policy:
+            if (katrain.analysis_controls.policy.active or getattr(katrain, "peek_policy", False)) and policy:
                 policy_grid = var_to_grid(policy, (board_size_x, board_size_y))
                 best_move_policy = max(*policy)
                 colors = Theme.EVAL_COLORS[self.trainer_config["theme"]]
@@ -916,7 +916,7 @@ class BadukPanWidget(Widget):
             hint_moves = []
             if (
                 (katrain.analysis_controls.hints.active or getattr(katrain, "peek_hints", False))
-                and not katrain.analysis_controls.policy.active
+                and not (katrain.analysis_controls.policy.active or getattr(katrain, "peek_policy", False))
                 and not game_ended
             ):
                 hint_moves = current_node.candidate_moves[:5]  # 魔改:每次只显示最优的 5 手(candidate_moves 已按好坏排序)

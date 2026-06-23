@@ -441,6 +441,48 @@ class PlayerInfo(MDBoxLayout, BackgroundMixin):
 
 class TimerOrMoveTree(MDBoxLayout):
     mode = StringProperty(MODE_PLAY)
+    extra_height = NumericProperty(0)  # user-added height via the resize handle (analysis mode only)
+
+
+class MoveTreeResizeHandle(BackgroundMixin):
+    """Thin draggable bar that grows/shrinks the move-tree box by adjusting
+    ``target.extra_height``. The stone size is unaffected (it derives from
+    ``MoveTree.min_height``), so dragging only changes how much of the tree is visible."""
+
+    target = ObjectProperty(None)  # TimerOrMoveTree whose extra_height is adjusted
+    min_extra = NumericProperty(0)
+    max_extra = NumericProperty(600)
+    hovering = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        Window.bind(mouse_pos=self._on_mouse_pos)
+
+    def _on_mouse_pos(self, _window, pos):
+        if not self.get_root_window():
+            return
+        self.hovering = not self.disabled and self.collide_point(*pos)
+
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos) and self.target is not None:
+            touch.grab(self)
+            self._start_y = touch.y
+            self._start_extra = self.target.extra_height
+            return True
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if touch.grab_current is self and self.target is not None:
+            delta = self._start_y - touch.y  # drag down -> box grows downward
+            self.target.extra_height = max(self.min_extra, min(self.max_extra, self._start_extra + delta))
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if touch.grab_current is self:
+            touch.ungrab(self)
+            return True
+        return super().on_touch_up(touch)
 
 
 class Timer(BGBoxLayout):

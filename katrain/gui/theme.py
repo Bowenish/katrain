@@ -188,15 +188,15 @@ class Theme:
     KEY_ANALYSIS_CONTROLS_SHOW_CHILDREN = "q"
     KEY_ANALYSIS_CONTROLS_EVAL = "w"
     KEY_ANALYSIS_CONTROLS_HINTS = "e"
-    KEY_ANALYSIS_CONTROLS_POLICY = "r"
+    KEY_ANALYSIS_CONTROLS_POLICY = "h"  # 策略显示 (was "r"; "r" 让给重新分析)
     KEY_ANALYSIS_CONTROLS_OWNERSHIP = "t"
 
-    KEY_ANALYZE_EXTRA_EXTRA = "a"
-    KEY_ANALYZE_EXTRA_EQUALIZE = "s"
-    KEY_ANALYZE_EXTRA_SWEEP = "d"
+    KEY_ANALYZE_EXTRA_EXTRA = "d"  # 深度分析 (was "a")
+    KEY_ANALYZE_EXTRA_EQUALIZE = "a"  # 均衡分析 (was "s"; "s" 让给选择区域)
+    KEY_ANALYZE_EXTRA_SWEEP = "g"  # 扫描分析 (was "d"; "d" 让给深度分析)
     KEY_ANALYZE_EXTRA_ALTERNATIVE = "f"
-    KEY_SELECT_BOX = "g"
-    KEY_RESET_ANALYSIS = "h"
+    KEY_SELECT_BOX = "s"  # 选择区域 (was "g")
+    KEY_RESET_ANALYSIS = "r"  # 重新分析 (was "h")
     KEY_INSERT_MODE = "i"
     KEY_SELFPLAY_TO_END = "l"
     KEY_STOP_ANALYSIS = "escape"
