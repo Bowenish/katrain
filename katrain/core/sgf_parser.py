@@ -216,13 +216,17 @@ class SGFNode:
 
     @property
     def komi(self) -> float:
-        """Retrieves the root's KM property, or 6.5 if missing"""
+        """Retrieves the root's KM property, or 6.5 if missing.
+
+        Sanitised to a half-integer in [-150, 150] - KataGo rejects anything else
+        (e.g. a komi of 7.25 or 200 from an oddly-formatted imported SGF)."""
         try:
             km = float(self.root.get_property("KM", 6.5))
-        except ValueError:
+        except (ValueError, TypeError):
             km = 6.5
-
-        return km
+        if not math.isfinite(km):
+            km = 6.5
+        return max(-150.0, min(150.0, round(km * 2) / 2))
 
     @property
     def handicap(self) -> int:

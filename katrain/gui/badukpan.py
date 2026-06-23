@@ -33,7 +33,7 @@ from katrain.core.game import Move
 from katrain.core.lang import i18n
 from katrain.core.utils import evaluation_class, format_visits, var_to_grid, json_truncate_arrays
 from katrain.gui.kivyutils import draw_circle, draw_text, cached_texture
-from katrain.gui.popups import I18NPopup, ReAnalyzeGamePopup, GameReportPopup, TsumegoFramePopup
+from katrain.gui.popups import I18NPopup, ReAnalyzeGamePopup, GameReportPopup, TsumegoFramePopup, BoardLibraryPopup
 from katrain.gui.theme import Theme
 
 
@@ -173,6 +173,7 @@ class BadukPanWidget(Widget):
         if self.selecting_region_of_interest:
             if len(self.region_of_interest) == 4:
                 self.katrain.game.set_region_of_interest(self.region_of_interest)
+                self.katrain.game.reset_current_analysis()   # re-analyse with the new/cleared region
                 self.region_of_interest = []
                 self.selecting_region_of_interest = False
 
@@ -403,8 +404,8 @@ class BadukPanWidget(Widget):
 
     def get_grid_spaces_margins(self):
         if self.draw_coords_enabled:
-            grid_spaces_margin_x = [1.5, 0.75]  # left, right
-            grid_spaces_margin_y = [1.5, 0.75]  # bottom, top
+            grid_spaces_margin_x = [1.5, 1.5]  # left, right (coords on both sides)
+            grid_spaces_margin_y = [1.5, 1.5]  # bottom, top (coords on both sides)
         else:  # no coordinates means remove the offset
             grid_spaces_margin_x = [0.75, 0.75]  # left, right
             grid_spaces_margin_y = [0.75, 0.75]  # bottom, top
@@ -559,20 +560,26 @@ class BadukPanWidget(Widget):
             if (self.rotation_degree == 90 or self.rotation_degree == 270) and board_size_x != board_size_y:
                 board_size_y, board_size_x = self.katrain.game.board_size
 
+            # letters (A-T) along the bottom AND top
             for i in range(board_size_x):
-                draw_text(
-                    pos=(gridpos_x[i], gridpos_y[0] - coord_offset),
-                    text=self.get_x_coordinate_text(i, board_size_x),
-                    font_size=self.grid_size / 1.5,
-                    font_name="Roboto",
-                )
+                x_text = self.get_x_coordinate_text(i, board_size_x)
+                for y in (gridpos_y[0] - coord_offset, gridpos_y[-1] + coord_offset):
+                    draw_text(
+                        pos=(gridpos_x[i], y),
+                        text=x_text,
+                        font_size=self.grid_size / 1.5,
+                        font_name="Roboto",
+                    )
+            # numbers (1-19) along the left AND right
             for i in range(board_size_y):
-                draw_text(
-                    pos=(gridpos_x[0] - coord_offset, gridpos_y[i]),
-                    text=self.get_y_coordinate_text(i, board_size_y),
-                    font_size=self.grid_size / 1.5,
-                    font_name="Roboto",
-                )
+                y_text = self.get_y_coordinate_text(i, board_size_y)
+                for x in (gridpos_x[0] - coord_offset, gridpos_x[-1] + coord_offset):
+                    draw_text(
+                        pos=(x, gridpos_y[i]),
+                        text=y_text,
+                        font_size=self.grid_size / 1.5,
+                        font_name="Roboto",
+                    )
 
     def get_x_coordinate_text(self, i, board_size_x):
         x_text = Move.GTP_COORD[i]
@@ -681,7 +688,7 @@ class BadukPanWidget(Widget):
                                 else None
                             ),
                             loss=loss_grid[m.coords[1]][m.coords[0]] if loss_grid else None,
-                            depth=node.depth if katrain.show_move_num else None,
+                            depth=node.depth if katrain.analysis_controls.move_num.active else None,
                         )
                 realized_points_lost = node.parent_realized_points_lost
 
@@ -908,11 +915,11 @@ class BadukPanWidget(Widget):
             # hints or PV
             hint_moves = []
             if (
-                katrain.analysis_controls.hints.active
+                (katrain.analysis_controls.hints.active or getattr(katrain, "peek_hints", False))
                 and not katrain.analysis_controls.policy.active
                 and not game_ended
             ):
-                hint_moves = current_node.candidate_moves
+                hint_moves = current_node.candidate_moves[:5]  # 魔改:每次只显示最优的 5 手(candidate_moves 已按好坏排序)
             elif katrain.controls.status_state[1] == STATUS_TEACHING:  # show score hint for teaching  undo
                 hint_moves = [
                     m
@@ -1231,6 +1238,14 @@ class AnalysisDropDown(DropDown):
         analysis_popup.content.popup = analysis_popup
         analysis_popup.content.katrain = MDApp.get_running_app().gui
         analysis_popup.open()
+
+    def open_board_library_popup(self, *_args):
+        library_popup = I18NPopup(
+            title_key="棋形库 / Board Library", size=[dp(920), dp(680)], content=BoardLibraryPopup()
+        )
+        library_popup.content.popup = library_popup
+        library_popup.content.katrain = MDApp.get_running_app().gui
+        library_popup.open()
 
 
 class AnalysisControls(MDBoxLayout):

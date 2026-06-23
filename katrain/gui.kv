@@ -832,6 +832,11 @@
         shortcut: 'F10'
         on_action: root.open_tsumego_frame_popup()
     AnalysisMenuItem:
+        text: i18n._("棋形库")
+        icon: 'analysis.png'
+        shortcut: 'Ctrl-B'
+        on_action: root.open_board_library_popup()
+    AnalysisMenuItem:
         text: i18n._("analysis:continuous")
         icon: 'play.png'
         shortcut: 'space'
@@ -852,12 +857,21 @@
     policy: policy
     hints: hints
     ownership: ownership
+    move_num: move_num
     analysis_button: analysis_button
     hamburger: hamburger
     HamburgerButton:
         id: hamburger
         size_hint: None, 1
         on_press: app.gui.nav_drawer.set_state("open")
+    AutoSizedRoundedRectangleButton:
+        size_hint: None, 0.55
+        pos_hint: {'center_y': 0.5}
+        font_name: Theme.DEFAULT_FONT
+        background_color: Theme.BOX_BACKGROUND_COLOR
+        padding_x: 12
+        text: i18n._("棋形库")
+        on_release: root.dropdown.open_board_library_popup()
     AnchorLayout:
         MDBoxLayout:
             adaptive_width: True
@@ -880,6 +894,9 @@
             AnalysisToggle:
                 id: ownership
                 text: i18n._('analysis:territory')
+            AnalysisToggle:
+                id: move_num
+                text: i18n._('手数')
                 padding: 0,0,show_children.width/8,0 # space button a bit more
             MDFloatLayout:
                 width: analysis_button.width
@@ -1137,10 +1154,30 @@
 
 
 
+<AnalysisProgressBar@Label>:
+    progress: 0
+    text: ''
+    font_name: Theme.DEFAULT_FONT
+    font_size: sp(12)
+    color: Theme.TEXT_COLOR
+    canvas.before:
+        Color:
+            rgba: Theme.BOX_BACKGROUND_COLOR
+        Rectangle:
+            pos: self.pos
+            size: self.size
+        Color:
+            rgba: Theme.ENGINE_READY_COLOR if self.progress >= 1 else Theme.ENGINE_PONDERING_COLOR
+        Rectangle:
+            pos: self.pos
+            size: self.width * min(1, max(0, self.progress)), self.height
+
+
 <KaTrainGui>:
     board_gui: board_gui
     controls: controls
     board_controls: board_controls
+    analysis_progress: analysis_progress
     play_mode: play_mode
     analysis_controls: analysis_controls
     nav_drawer: nav_drawer
@@ -1164,6 +1201,11 @@
                             id: board_controls
                             size_hint_y: None
                             height: 1 if root.zen > 0 else max(sp(Theme.CONTROLS_PANEL_MIN_HEIGHT),min(sp(Theme.CONTROLS_PANEL_MAX_HEIGHT),self.width / Theme.CONTROLS_PANEL_ASPECT_RATIO))
+                            opacity: 0 if root.zen > 0 else 1
+                        AnalysisProgressBar:
+                            id: analysis_progress
+                            size_hint_y: None
+                            height: 0 if root.zen > 0 else dp(20)
                             opacity: 0 if root.zen > 0 else 1
                     MDBoxLayout:
                         size_hint_x: None

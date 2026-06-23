@@ -454,7 +454,9 @@ class KataGoEngine(BaseEngine):
                         if x < xmin or x > xmax or y < ymin or y > ymax
                     ],
                     "player": player,
-                    "untilDepth": 1,  # tried a large number here, or 2, but this seems more natural
+                    # avoid outside-region moves for the WHOLE search (not just the first move),
+                    # so all AI computation - candidate moves AND read-ahead PVs - stays local.
+                    "untilDepth": 10000,
                 }
                 for player in "BW"
             ]

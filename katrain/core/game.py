@@ -463,7 +463,8 @@ class Game(BaseGame):
             # forced, or not present, or something went wrong in loading
             if even_if_present or not node.analysis_from_sgf or not node.load_analysis():
                 node.clear_analysis()
-                node.analyze(self.engines[node.next_player], priority=priority, analyze_fast=analyze_fast)
+                node.analyze(self.engines[node.next_player], priority=priority, analyze_fast=analyze_fast,
+                             region_of_interest=self.region_of_interest)
 
     def set_current_node(self, node):
         if self.insert_mode:
@@ -486,7 +487,7 @@ class Game(BaseGame):
         engine = self.engines[cn.next_player]
         engine.terminate_queries(cn)
         cn.clear_analysis()
-        cn.analyze(engine)
+        cn.analyze(engine, region_of_interest=self.region_of_interest)
 
     def redo(self, n_times=1, stop_on_mistake=None):
         if self.insert_mode:
@@ -617,7 +618,8 @@ class Game(BaseGame):
                     continue
                 if move_range and (not node.depth - 1 in range(move_range[0], move_range[1] + 1)):
                     continue
-                node.analyze(engine, visits=visits, priority=-1_000_000, time_limit=False, report_every=None)
+                node.analyze(engine, visits=visits, priority=-1_000_000, time_limit=False, report_every=None,
+                             region_of_interest=self.region_of_interest)
             if not move_range:
                 self.katrain.controls.set_status(i18n._("game re-analysis").format(visits=visits), STATUS_ANALYSIS)
             else:

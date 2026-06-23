@@ -27,8 +27,13 @@ dist_sgf
 # debug
 outdated_log.txt
 
-# too big
+# too big: KataGo neural-net weights (downloaded separately, can exceed 100MB - never commit)
 models/*.bin.gz
+katrain/models/*.bin.gz
+*.bin.gz
+
+# OCR digit-CNN training artifact (offline only)
+katrain/core/_digit_preview.png
 
 # standard python ignore
 # Byte-compiled / optimized / DLL files

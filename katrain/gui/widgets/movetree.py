@@ -54,7 +54,17 @@ class MoveTreeCanvas(Widget):
         katrain.game.set_current_node(node)
         katrain.update_state()
 
+    def on_touch_down(self, touch):
+        touch.ud["mt_x"], touch.ud["mt_y"] = touch.x, touch.y   # remember start to tell tap from drag
+        return super().on_touch_down(touch)
+
     def on_touch_up(self, touch):
+        # a drag (slide to scroll) must NOT select a node - only a tap does
+        sx, sy = touch.ud.get("mt_x"), touch.ud.get("mt_y")
+        if sx is None or (abs(sx - touch.x) + abs(sy - touch.y)) > dp(12):
+            return super().on_touch_up(touch)
+        if not self.move_xy_pos:
+            return super().on_touch_up(touch)
         selected_node = None
         is_open = False
         node, (x, y) = min(
@@ -262,10 +272,19 @@ class MoveTree(ScrollView, BackgroundMixin):
             sy = (y - self.height / 2) / (vp.height - self.height)
             self.scroll_y = max(0, min(1, sy))
 
-    # disable mousewheel
     def on_scroll_start(self, touch, check_children=True):
+        # mouse wheel -> scroll the (horizontal) move strip left/right
         if "button" in touch.profile and touch.button.startswith("scroll"):
-            return False
+            if not self.collide_point(*touch.pos):
+                return False
+            vp = self._viewport
+            if vp and vp.width > self.width:
+                step = self.convert_distance_to_scroll(self.width * 0.18, 0)[0]
+                if touch.button in ("scrolldown", "scrollright"):
+                    self.scroll_x = min(1.0, self.scroll_x + step)
+                elif touch.button in ("scrollup", "scrollleft"):
+                    self.scroll_x = max(0.0, self.scroll_x - step)
+            return True
         return super().on_scroll_start(touch, check_children)
 
 

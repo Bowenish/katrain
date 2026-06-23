@@ -205,6 +205,8 @@ class Theme:
 
     KEY_COPY = "c"
     KEY_PASTE = "v"
+    KEY_IMPORT_SCREENSHOT = "i"  # used with ctrl:截图框选导入棋形
+    KEY_BOARD_LIBRARY = "b"  # used with ctrl:打开棋形库
 
     KEY_NAV_BRANCH_DOWN = "down"
     KEY_NAV_BRANCH_UP = "up"

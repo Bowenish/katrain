@@ -3,6 +3,8 @@ import json
 import os
 import re
 import stat
+import subprocess
+import sys
 import threading
 import time
 from typing import Any, Dict, List, Tuple, Union
@@ -17,6 +19,11 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.button import Button
+from kivy.uix.textinput import TextInput
+from kivy.uix.spinner import Spinner, SpinnerOption
+from kivy.uix.widget import Widget
 from kivy.utils import platform
 from kivymd.app import MDApp
 from kivymd.uix.boxlayout import MDBoxLayout
@@ -41,6 +48,7 @@ from katrain.core.constants import (
     ADDITIONAL_MOVE_ORDER,
 )
 from katrain.core.lang import i18n, rank_label
+from katrain.core.library import default_library, DEFAULT_CATEGORY
 from katrain.core.sgf_parser import Move
 from katrain.core.utils import PATHS, find_package_resource, evaluation_class
 from katrain.gui.kivyutils import (
@@ -53,6 +61,7 @@ from katrain.gui.kivyutils import (
     PlayerInfo,
     SizedRectangleButton,
     AutoSizedRectangleButton,
+    BGBoxLayout,
 )
 from katrain.gui.theme import Theme
 from katrain.gui.widgets.progress_loader import ProgressLoader
@@ -1009,3 +1018,397 @@ class GameReportPopup(BoxLayout):
         # if not done analyzing, check again in 1s
         if not self.katrain.engine.is_idle():
             Clock.schedule_once(self._refresh, 1)
+
+
+class _CJKSpinnerOption(SpinnerOption):
+    """Spinner dropdown item that renders CJK (default Roboto font cannot)."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("font_name", Theme.DEFAULT_FONT)
+        super().__init__(**kwargs)
+
+
+def _native_text_prompt(title, initial=""):
+    """Ask for a line of text using a NATIVE OS dialog (tkinter), which has full IME support.
+
+    Kivy's SDL2 text field doesn't pop the IME candidate window, so Chinese can't be typed
+    there. We run a tiny tkinter askstring in a subprocess (its own Tk loop, no clash with
+    Kivy) and read the result from a temp file as UTF-8. Returns the text, or None if cancelled.
+    """
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix=".txt")
+    os.close(fd)
+    script = (
+        "import sys, ctypes, tkinter as tk\n"
+        "from tkinter import simpledialog\n"
+        "try: ctypes.windll.shcore.SetProcessDpiAwareness(1)\n"
+        "except Exception: pass\n"
+        "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
+        "v = simpledialog.askstring(sys.argv[2], '请输入名称：', initialvalue=sys.argv[3], parent=r)\n"
+        "open(sys.argv[1], 'w', encoding='utf-8').write('\\x00' if v is None else v)\n"
+    )
+    try:
+        subprocess.run([sys.executable, "-c", script, path, title, initial or ""],
+                       timeout=300, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        with open(path, encoding="utf-8") as f:
+            v = f.read()
+        return None if v == "\x00" else v
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+class BoardLibraryPopup(BoxLayout):
+    """A browsable, categorised collection of imported board shapes.
+
+    Top bar : category selector + new/delete category + 'capture into library'.
+    Body    : a scrolling grid of thumbnails - click one to load it on the board.
+
+    Built in Python (like GameReportPopup) so there is no extra .kv to maintain.
+    All user-visible widgets use Theme.DEFAULT_FONT so Chinese text renders.
+    """
+
+    ALL = "全部"            # pseudo-category: show every entry
+    MANAGE_ITEM = "管理分类…"   # dropdown action: open the manager (create / rename / delete)
+
+    def __init__(self, **kwargs):
+        super().__init__(orientation="vertical", spacing=dp(6), padding=dp(8), **kwargs)
+        self.katrain = None
+        self.popup = None
+        self.lib = default_library()
+        self.current = self.ALL
+
+        # top bar: [category] | [新建空棋盘] [截图入库] ......... [新建分类] [删除分类]
+        bar = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(46), spacing=dp(6), padding=[dp(2), 0])
+        self._disp2val = {}
+        self.category_spinner = Spinner(
+            text=self._display(self.ALL),
+            values=[self._display(self.ALL)],
+            font_name=Theme.DEFAULT_FONT,
+            option_cls=_CJKSpinnerOption,
+            size_hint_x=None,
+            width=dp(160),
+            color=Theme.TEXT_COLOR,
+        )
+        self.category_spinner.bind(text=self._on_category)
+        bar.add_widget(self._lbl("分类", size_hint_x=None, width=dp(40)))
+        bar.add_widget(self.category_spinner)
+        bar.add_widget(Widget())  # spacer; create actions live on the first card, manage in the dropdown
+
+        def barbtn(text, cb):
+            b = AutoSizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(None, 1))
+            b.background_color = Theme.BOX_BACKGROUND_COLOR
+            b.background_radius = dp(8)
+            b.outline_color = Theme.BUTTON_BORDER_COLOR
+            b.bind(on_release=lambda *_a: cb())
+            return b
+
+        bar.add_widget(barbtn("导入SGF", self._import_sgf))
+        bar.add_widget(barbtn("存入当前棋盘", self._save_current))
+        self.add_widget(bar)
+
+        self.scroll = ScrollView()
+        self.grid = GridLayout(cols=4, spacing=dp(10), padding=dp(6), size_hint_y=None)
+        self.grid.bind(minimum_height=self.grid.setter("height"))
+        self.scroll.add_widget(self.grid)
+        self.add_widget(self.scroll)
+
+        Clock.schedule_once(lambda _dt: self.refresh(), 0)
+
+    # ----------------------------------------------------------- helpers --
+    @staticmethod
+    def _btn(text, cb, **kw):
+        # SizedRectangleButton defaults to size_hint=(None,None) size 100x100 (and its inner
+        # label font = 0.6*height -> huge). Always give it a layout-driven size.
+        kw.setdefault("size_hint", (1, 1))
+        b = SizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, **kw)
+        b.background_color = Theme.BOX_BACKGROUND_COLOR
+        b.background_radius = dp(8)
+        b.bind(on_release=lambda *_a: cb())
+        return b
+
+    @staticmethod
+    def _lbl(text, **kw):
+        kw.setdefault("font_name", Theme.DEFAULT_FONT)
+        kw.setdefault("color", Theme.TEXT_COLOR)
+        return Label(text=text, **kw)
+
+    def _display(self, value):
+        """Decorate a category value for the dropdown so the three kinds are distinct."""
+        if value == self.ALL:
+            return "【全部】"
+        if value == DEFAULT_CATEGORY:
+            return "未分类（默认）"
+        return value
+
+    def _rebuild_categories(self):
+        """Refresh spinner options (display strings) + the display->value map. Returns real values.
+
+        The dropdown ends with action items: '＋ 新建分类' always, and '✕ 删除…' only when the
+        current selection is a deletable custom category."""
+        values = [self.ALL] + self.lib.categories()
+        self._disp2val = {self._display(v): v for v in values}
+        disp = [self._display(v) for v in values]
+        disp.append(self.MANAGE_ITEM)   # create / rename / delete all live in the manager
+        self.category_spinner.values = disp
+        return values
+
+    def _on_category(self, _spinner, text):
+        if text == self.MANAGE_ITEM:                    # action item, not a category switch
+            self.category_spinner.text = self._display(self.current)   # revert the selection
+            self._manage_categories()
+            return
+        self.current = self._disp2val.get(text, self.ALL)
+        self.refresh()
+
+    # ------------------------------------------------------------ render --
+    def refresh(self, *_args):
+        if getattr(self, "_refreshing", False):
+            return
+        self._refreshing = True
+        try:
+            values = self._rebuild_categories()
+            if self.current not in values:
+                self.current = self.ALL
+            want = self._display(self.current)
+            if self.category_spinner.text != want:
+                self.category_spinner.text = want   # guarded: re-entry into refresh is a no-op
+            self.grid.clear_widgets()
+            self.grid.add_widget(self._make_new_card())   # always first: blank-board / empty state
+            cat = None if self.current == self.ALL else self.current
+            for e in self.lib.entries(cat):
+                self.grid.add_widget(self._make_card(e))
+        finally:
+            self._refreshing = False
+
+    def _card_base(self):
+        card = BGBoxLayout(orientation="vertical", size_hint_y=None, height=dp(172), spacing=dp(3), padding=dp(5))
+        card.background_color = Theme.BOX_BACKGROUND_COLOR
+        card.background_radius = dp(7)
+        return card
+
+    def _make_new_card(self):
+        """The 'create' tile: top half = capture a screenshot into the library, bottom half = new blank board."""
+        card = self._card_base()
+        card.background_color = Theme.LIGHTER_BACKGROUND_COLOR
+        card.outline_color = Theme.BUTTON_BORDER_COLOR
+        card.outline_width = dp(1.2)
+
+        def half(text, cb):
+            b = Button(text=text, font_name=Theme.DEFAULT_FONT, font_size=dp(17), size_hint_y=0.5,
+                       background_normal="", background_down="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
+            b.bind(on_release=lambda *_a: cb())
+            return b
+
+        card.add_widget(half("▣  截图入库", self._capture))
+        divider = BackgroundLabel(text="", size_hint_y=None, height=dp(1))
+        divider.background_color = Theme.BUTTON_BORDER_COLOR
+        card.add_widget(divider)
+        card.add_widget(half("＋  空白棋盘", self._new_blank))
+        return card
+
+    def _make_card(self, e):
+        card = self._card_base()
+        thumb = self.lib.thumb_path(e)
+        if os.path.exists(thumb):
+            btn = Button(background_normal=thumb, background_down=thumb, border=(0, 0, 0, 0), size_hint_y=0.78)
+        else:
+            btn = Button(text="点击载入", font_name=Theme.DEFAULT_FONT, size_hint_y=0.78,
+                         background_normal="", background_color=Theme.LIGHTER_BACKGROUND_COLOR, color=Theme.TEXT_COLOR)
+        btn.bind(on_release=lambda *_a: self.load_entry(e))
+        card.add_widget(btn)
+        footer = BoxLayout(orientation="horizontal", size_hint_y=0.22, spacing=dp(2))
+        info = self._lbl(f"{e.get('name', '棋形')}  SZ{e.get('size', 19)}  ●{e.get('nb', 0)} ○{e.get('nw', 0)}",
+                         font_size=dp(13))
+        footer.add_widget(info)
+        menu = Button(text="⋯", font_name=Theme.DEFAULT_FONT, font_size=dp(20), size_hint_x=None, width=dp(34),
+                      background_normal="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
+        menu.bind(on_release=lambda *_a: self._card_menu(e))
+        footer.add_widget(menu)
+        card.add_widget(footer)
+        return card
+
+    def _card_menu(self, e):
+        """The per-card '⋯' menu: rename / move / delete (keeps cards uncluttered)."""
+        box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
+        pop = Popup(title=e.get("name", "棋形"), title_font=Theme.DEFAULT_FONT,
+                    content=box, size_hint=(None, None), size=(dp(260), dp(250)))
+
+        def item(text, fn, danger=False):
+            b = SizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(1, None), height=dp(46))
+            b.background_color = Theme.BOX_BACKGROUND_COLOR
+            b.background_radius = dp(8)
+            b.outline_color = Theme.ERROR_BORDER_COLOR if danger else Theme.BUTTON_BORDER_COLOR
+            b.bind(on_release=lambda *_a: (pop.dismiss(), fn(e)))
+            return b
+
+        box.add_widget(item("改名", self._rename_entry))
+        box.add_widget(item("移动分类", self._move_entry))
+        box.add_widget(item("删除", self._delete_entry, danger=True))
+        pop.open()
+
+    # ------------------------------------------------------------ actions --
+    def load_entry(self, e):
+        if self.katrain:
+            self.katrain.library_load(e)
+        if self.popup:
+            self.popup.dismiss()
+
+    def _new_blank(self):
+        if self.katrain:
+            self.katrain.library_new_blank(self)
+        if self.popup:
+            self.popup.dismiss()   # load-and-go: close so the user can place stones
+
+    def _save_current(self):
+        if self.katrain:
+            self.katrain.library_save_current(popup=self)   # snapshot the live board into the library
+
+    def _import_sgf(self):
+        if self.katrain:
+            self.katrain.library_import_sgf(popup=self)      # pick an SGF file and add it to the library
+
+    def _capture(self):
+        if not self.katrain:
+            return
+        cat = DEFAULT_CATEGORY if self.current == self.ALL else self.current
+        self.katrain.library_capture(cat, self)
+
+    def _reserved(self, name):
+        """A category name that would collide with a decorated/pseudo/action label in the spinner."""
+        name = (name or "").strip()
+        return name in (self.ALL, self.MANAGE_ITEM,
+                        self._display(self.ALL), self._display(DEFAULT_CATEGORY))
+
+    def _new_category(self, after=lambda: None):
+        def on_ok(name):
+            name = (name or "").strip()
+            if name and not self._reserved(name):
+                self.lib.add_category(name)
+                self._select(name)
+                after()
+        self._ask_text("新建分类", "", on_ok)
+
+    def _manage_categories(self):
+        """A dedicated manager: list every custom category with rename / delete (confirmed)."""
+        box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
+        scroll = ScrollView()
+        lst = GridLayout(cols=1, spacing=dp(6), size_hint_y=None, padding=dp(2))
+        lst.bind(minimum_height=lst.setter("height"))
+        scroll.add_widget(lst)
+        box.add_widget(scroll)
+        pop = Popup(title="管理分类", title_font=Theme.DEFAULT_FONT, content=box,
+                    size_hint=(None, None), size=(dp(440), dp(480)))
+        foot = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
+
+        def rebuild():
+            lst.clear_widgets()
+            cats = [c for c in self.lib.categories() if c != DEFAULT_CATEGORY]
+            if not cats:
+                lst.add_widget(self._lbl("暂无自定义分类，点下方『＋ 新建分类』创建",
+                                         size_hint_y=None, height=dp(48)))
+                return
+            for cat in cats:
+                row = BGBoxLayout(orientation="horizontal", size_hint_y=None, height=dp(52),
+                                  spacing=dp(6), padding=dp(6))
+                row.background_color = Theme.BOX_BACKGROUND_COLOR
+                row.background_radius = dp(6)
+                nm = self._lbl(f"{cat}   ({len(self.lib.entries(cat))})", halign="left", valign="middle")
+                nm.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+                row.add_widget(nm)
+                row.add_widget(self._btn("改名", lambda c=cat: self._rename_category(c, rebuild),
+                                         size_hint=(None, 1), width=dp(78)))
+                db = self._btn("删除", lambda c=cat: self._del_category_confirm(c, rebuild),
+                               size_hint=(None, 1), width=dp(78))
+                db.outline_color = Theme.ERROR_BORDER_COLOR
+                row.add_widget(db)
+                lst.add_widget(row)
+
+        foot.add_widget(self._btn("＋ 新建分类", lambda: self._new_category(rebuild)))
+        foot.add_widget(self._btn("关闭", pop.dismiss))
+        box.add_widget(foot)
+        rebuild()
+        pop.open()
+
+    def _rename_category(self, cat, after=lambda: None):
+        def on_ok(name):
+            name = (name or "").strip()
+            if name and name != cat and not self._reserved(name):
+                self.lib.rename_category(cat, name)
+                if self.current == cat:
+                    self.current = name
+                self.refresh()
+                after()
+        self._ask_text("分类改名", cat, on_ok)
+
+    def _del_category_confirm(self, cat, after=lambda: None):
+        n = len(self.lib.entries(cat))
+
+        def do():
+            self.lib.remove_category(cat)
+            if self.current == cat:
+                self._select(self.ALL)
+            else:
+                self.refresh()
+            after()
+
+        self._confirm(f"删除分类「{cat}」？",
+                      f"其中 {n} 个棋形将移到「未分类」（不会删除棋形）。",
+                      do, yes_text="删除", danger=True)
+
+    def _confirm(self, title, message, on_yes, yes_text="确定", danger=False):
+        box = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(12))
+        msg = self._lbl(message, halign="center", valign="middle")
+        msg.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+        box.add_widget(msg)
+        row = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
+        pop = Popup(title=title, title_font=Theme.DEFAULT_FONT, content=box,
+                    size_hint=(None, None), size=(dp(380), dp(210)))
+
+        def yes():
+            on_yes()
+            pop.dismiss()
+
+        yb = self._btn(yes_text, yes)
+        if danger:
+            yb.outline_color = Theme.ERROR_BORDER_COLOR
+        row.add_widget(yb)
+        row.add_widget(self._btn("取消", pop.dismiss))
+        box.add_widget(row)
+        pop.open()
+
+    def _rename_entry(self, e):
+        self._ask_text("改名", e.get("name", ""), lambda name: (self.lib.rename_entry(e["id"], name), self.refresh()))
+
+    def _move_entry(self, e):
+        def on_ok(cat):
+            cat = (cat or "").strip() or DEFAULT_CATEGORY
+            if self._reserved(cat):
+                cat = DEFAULT_CATEGORY
+            self.lib.set_category(e["id"], cat)
+            self.refresh()
+        self._ask_text("移动到分类（输入分类名，可新建）", e.get("category", DEFAULT_CATEGORY), on_ok)
+
+    def _delete_entry(self, e):
+        self.lib.remove_entry(e["id"])
+        self.refresh()
+
+    def _select(self, category):
+        if category in ([self.ALL] + self.lib.categories()):
+            self.current = category
+        self.refresh()   # refresh sets the (decorated) spinner text from self.current
+
+    def _ask_text(self, title, initial, on_ok):
+        # Use a NATIVE input dialog (proper IME / Chinese input). It runs in a subprocess, so
+        # do it off the Kivy thread and apply the result back on the main thread.
+        def worker():
+            value = _native_text_prompt(title, initial or "")
+            if value is not None and value.strip():
+                Clock.schedule_once(lambda *_a: on_ok(value.strip()), 0)
+
+        threading.Thread(target=worker, daemon=True).start()

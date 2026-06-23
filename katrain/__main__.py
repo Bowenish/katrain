@@ -47,6 +47,8 @@ import re
 import signal
 import json
 import threading
+import subprocess
+import tempfile
 import traceback
 from queue import Queue
 import urllib3
@@ -134,7 +136,7 @@ class KaTrainGui(Screen, KaTrainBase):
         self.contribute_popup = None
 
         self.pondering = False
-        self.show_move_num = False
+        self.peek_hints = False   # hold Shift -> temporarily show best-move hints (最佳选点)
 
         self.animate_contributing = False
         self.message_queue = Queue()
@@ -186,8 +188,28 @@ class KaTrainGui(Screen, KaTrainBase):
             self.update_state()
 
     def toggle_move_num(self):
-        self.show_move_num = not self.show_move_num
-        self.update_state()
+        # the 'm' key flips the 手数 checkbox in the top bar (single source of truth)
+        tog = getattr(self.analysis_controls, "move_num", None)
+        if tog is not None:
+            tog.trigger_action()
+
+    def _update_progress_bar(self, *_args):
+        """Drive the bottom analysis bar from the current node's live visit count."""
+        bar = getattr(self, "analysis_progress", None)
+        if bar is None:
+            return
+        node = self.game.current_node if self.game else None
+        if node is None:
+            bar.progress, bar.text = 0, ""
+            return
+        done = getattr(node, "root_visits", 0)
+        target = max(1, getattr(node, "analysis_visits_requested", 0))
+        if target <= 1 or done >= target:        # idle / finished -> empty bar (show only while computing)
+            bar.progress, bar.text = 0, ""
+        else:
+            bar.progress = done / target
+            local = "（局部）" if (self.game and getattr(self.game, "region_of_interest", None)) else ""
+            bar.text = f"计算中{local}  {done} / {target}  visits  ({bar.progress * 100:.0f}%)"
 
     def start(self):
         if self.engine:
@@ -206,10 +228,15 @@ class KaTrainGui(Screen, KaTrainBase):
             self._do_new_game()
 
         Clock.schedule_interval(self.handle_animations, 0.1)
+        Clock.schedule_interval(self._update_progress_bar, 0.12)
         Window.request_keyboard(None, self, "").bind(on_key_down=self._on_keyboard_down, on_key_up=self._on_keyboard_up)
+        Window.bind(on_mouse_down=self._on_mouse_down)
 
         def set_focus_event(*args):
             self.last_focus_event = time.time()
+            if self.peek_hints:   # a held Shift's key-up can be lost on focus change -> clear the peek
+                self.peek_hints = False
+                self.board_gui.redraw_hover_contents_trigger()
 
         MDApp.get_running_app().root_window.bind(focus=set_focus_event)
 
@@ -566,7 +593,7 @@ class KaTrainGui(Screen, KaTrainBase):
                 analysis_region[1][0],
             ]
             self.game.set_region_of_interest(flattened_region)
-        node.analyze(self.game.engines[node.next_player])
+        node.analyze(self.game.engines[node.next_player], region_of_interest=self.game.region_of_interest)
         self.update_state(redraw_board=True)
 
     def play_mistake_sound(self, node):
@@ -673,6 +700,295 @@ class KaTrainGui(Screen, KaTrainBase):
         self("redo", 9999)
         self.log("Imported game from clipboard.", OUTPUT_INFO)
 
+    # ---- screenshot board recognition (Ctrl-I) + board library -------------
+    @property
+    def _screenshot_capture_path(self):
+        return os.path.join(tempfile.gettempdir(), "katrain_screenshot.png")  # raw capture; <name>.debug.png is annotated
+
+    def _run_recognizer(self, to_move, capture_path):
+        """Run the frame-select + recognise subprocess; return (sgf, err). Blocking - call off-thread.
+
+        It runs in a separate process (its own tkinter overlay, so it does not fight Kivy's
+        event loop) and prints the SGF to stdout."""
+        pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # dir that contains the 'katrain' package
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "katrain.core.screenshot_import", "--stdout", "--to-move", to_move,
+                 "--debug", "--edit", "--save-capture", capture_path],
+                capture_output=True,
+                text=True,
+                timeout=900,   # includes manual editing time
+                cwd=pkg_root,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return (proc.stdout or "").strip(), (proc.stderr or "").strip()
+        except Exception as exc:  # noqa
+            return "", str(exc)
+
+    def _load_move_tree_from_sgf(self, sgf):
+        """Parse an SGF string and load it as a new game (shared by import + library).
+
+        If it is a played-out sequence (手数模式: the root has move children, not just
+        AB/AW setup), automatically turn ON move-number display so the 手数 are visible."""
+        move_tree = KaTrainSGF.parse_sgf(sgf)
+        if getattr(move_tree, "children", None):   # has a first move -> it's a numbered sequence
+            tog = getattr(self.analysis_controls, "move_num", None)
+            if tog is not None:
+                tog.activate()   # auto-show move numbers
+        self._do_new_game(move_tree=move_tree, analyze_fast=True)
+        self("redo", 9999)
+        return move_tree
+
+    def import_board_from_screenshot(self, to_move="B"):
+        """Ctrl-I: frame-select a board on screen, recognise it, and load it as a new game."""
+        self.controls.set_status("框选屏幕上的棋盘… / drag to select the board on screen", STATUS_INFO)
+        capture_path = self._screenshot_capture_path
+
+        def worker():
+            sgf, err = self._run_recognizer(to_move, capture_path)
+            if err:
+                self.log("screenshot import: " + err, OUTPUT_INFO)
+            Clock.schedule_once(lambda _dt: self._finish_screenshot_import(sgf), -1)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_screenshot_import(self, sgf):
+        if not sgf or not sgf.lstrip().startswith("("):
+            self.controls.set_status("截图导入已取消或失败 / screenshot import cancelled or failed", STATUS_INFO)
+            return
+        try:
+            self._load_move_tree_from_sgf(sgf)
+        except Exception as exc:  # noqa
+            self.controls.set_status(f"截图 SGF 解析失败 / parse failed: {exc}", STATUS_INFO)
+            return
+        self.controls.set_status("已从截图导入棋形 / imported board from screenshot", STATUS_INFO)
+        self.log("Imported board from screenshot.", OUTPUT_INFO)
+
+    def library_load(self, entry):
+        """Load a saved library entry onto the board."""
+        sgf = (entry or {}).get("sgf", "")
+        if not sgf:
+            return
+        try:
+            self._load_move_tree_from_sgf(sgf)
+            self.controls.set_status(f"已载入：{entry.get('name', '棋形')}", STATUS_INFO)
+        except Exception as exc:  # noqa
+            self.controls.set_status(f"载入失败: {exc}", STATUS_INFO)
+
+    def library_new_blank(self, popup=None, size=19):
+        """Create an empty board (no screenshot): add it to the library and load it."""
+        from katrain.core.library import default_library, DEFAULT_CATEGORY
+
+        sgf = f"(;GM[1]FF[4]CA[UTF-8]SZ[{size}]PL[B])"
+        img = None
+        try:
+            from katrain.core.board_ocr import make_synthetic_board
+
+            img = make_synthetic_board(size=size, black=[], white=[])
+        except Exception:  # noqa
+            img = None
+        cat = DEFAULT_CATEGORY
+        cur = getattr(popup, "current", None)
+        if cur and cur != "全部":
+            cat = cur
+        try:
+            default_library().add_entry(sgf, image=img, name="空棋盘", category=cat, size=size, nb=0, nw=0)
+        except Exception as exc:  # noqa
+            self.controls.set_status(f"新建空棋盘失败 / new blank failed: {exc}", STATUS_INFO)
+            return
+        try:
+            self._load_move_tree_from_sgf(sgf)
+        except Exception:  # noqa
+            pass
+        if popup is not None:
+            try:
+                popup.refresh()
+            except Exception:  # noqa
+                pass
+        self.controls.set_status("已新建空棋盘并载入 / blank board created", STATUS_INFO)
+
+    def library_save_current(self, category=None, popup=None):
+        """Save the CURRENT board (whatever is on it now) into the library."""
+        from katrain.core.library import default_library, DEFAULT_CATEGORY
+
+        if not self.game:
+            return
+        sgf = self.game.root.sgf()
+        # thumbnail: snapshot the live board widget (exact look)
+        img = None
+        try:
+            from PIL import Image as _Img
+
+            tmp = os.path.join(tempfile.gettempdir(), "katrain_boardshot.png")
+            self.board_gui.export_to_png(tmp)
+            img = _Img.open(tmp)
+        except Exception:  # noqa
+            img = None
+        sx, sy = self.game.board_size
+        size = max(sx, sy)
+        nb = sum(1 for s in self.game.stones if s.player == "B")
+        nw = sum(1 for s in self.game.stones if s.player == "W")
+        cat = category or DEFAULT_CATEGORY
+        cur = getattr(popup, "current", None)
+        if category is None and cur and cur != "全部":
+            cat = cur
+        name = "棋形 " + time.strftime("%m-%d %H:%M")
+        try:
+            default_library().add_entry(sgf, image=img, name=name, category=cat, size=size, nb=nb, nw=nw)
+        except Exception as exc:  # noqa
+            self.controls.set_status(f"保存失败 / save failed: {exc}", STATUS_INFO)
+            return
+        if popup is not None:
+            try:
+                popup.refresh()
+            except Exception:  # noqa
+                pass
+        self.controls.set_status(f"已保存当前棋盘到库 / saved current board（{cat}）", STATUS_INFO)
+
+    def _native_pick_sgf(self):
+        """Native file dialog to pick an SGF (own subprocess; proper OS file browser). Returns path or None."""
+        fd, out_path = tempfile.mkstemp(suffix=".txt")
+        os.close(fd)
+        script = (
+            "import sys, ctypes, tkinter as tk\n"
+            "from tkinter import filedialog\n"
+            "try: ctypes.windll.shcore.SetProcessDpiAwareness(1)\n"
+            "except Exception: pass\n"
+            "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
+            "f = filedialog.askopenfilename(title='选择 SGF 棋谱', "
+            "filetypes=[('SGF 棋谱', '*.sgf'), ('所有文件', '*.*')])\n"
+            "open(sys.argv[1], 'w', encoding='utf-8').write(f or '')\n"
+        )
+        try:
+            subprocess.run([sys.executable, "-c", script, out_path], timeout=600,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            with open(out_path, encoding="utf-8") as fh:
+                p = fh.read().strip()
+            return p or None
+        except Exception:  # noqa
+            return None
+        finally:
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+
+    def library_import_sgf(self, category=None, popup=None):
+        """Pick an SGF file, load it, and save it (with a board snapshot) into the library."""
+        def worker():
+            path = self._native_pick_sgf()
+            if path:
+                Clock.schedule_once(lambda _dt: self._do_import_sgf(path, category, popup), -1)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _do_import_sgf(self, path, category, popup):
+        try:
+            raw = open(path, "rb").read()
+            sgf = None
+            for enc in ("utf-8-sig", "utf-8", "gbk", "latin-1"):
+                try:
+                    sgf = raw.decode(enc)
+                    break
+                except Exception:  # noqa
+                    continue
+            if sgf is None:
+                raise ValueError("无法解码文件编码")
+            self._load_move_tree_from_sgf(sgf)
+        except Exception as exc:  # noqa
+            self.controls.set_status(f"SGF 导入失败 / import failed: {exc}", STATUS_INFO)
+            return
+        name = os.path.splitext(os.path.basename(path))[0]
+        # lock the imported game's metadata NOW (self.game is correct here); the thumbnail is taken
+        # a moment later once the board has rendered.
+        sx, sy = self.game.board_size
+        meta = (max(sx, sy),
+                sum(1 for s in self.game.stones if s.player == "B"),
+                sum(1 for s in self.game.stones if s.player == "W"))
+        Clock.schedule_once(lambda _dt: self._finish_save_to_library(sgf, name, category, popup, meta), 0.4)
+
+    def _finish_save_to_library(self, sgf, name, category, popup, meta=None):
+        from katrain.core.library import default_library, DEFAULT_CATEGORY
+
+        img = None
+        try:
+            from PIL import Image as _Img
+
+            tmp = os.path.join(tempfile.gettempdir(), "katrain_boardshot.png")
+            self.board_gui.export_to_png(tmp)
+            img = _Img.open(tmp)
+        except Exception:  # noqa
+            img = None
+        if meta is not None:
+            size, nb, nw = meta
+        else:
+            sx, sy = self.game.board_size
+            size = max(sx, sy)
+            nb = sum(1 for s in self.game.stones if s.player == "B")
+            nw = sum(1 for s in self.game.stones if s.player == "W")
+        cat = category or DEFAULT_CATEGORY
+        cur = getattr(popup, "current", None)
+        if category is None and cur and cur != "全部":
+            cat = cur
+        try:
+            default_library().add_entry(sgf, image=img, name=name, category=cat, size=size, nb=nb, nw=nw)
+        except Exception as exc:  # noqa
+            self.controls.set_status(f"入库失败 / save failed: {exc}", STATUS_INFO)
+            return
+        if popup is not None:
+            try:
+                popup.refresh()
+            except Exception:  # noqa
+                pass
+        self.controls.set_status(f"已导入 {name} 到库（{cat}）", STATUS_INFO)
+
+    def library_capture(self, category, popup=None, to_move="B"):
+        """Frame-select + recognise, save the result into the library under `category`, then load it."""
+        self.controls.set_status("框选屏幕上的棋盘… / drag to select the board", STATUS_INFO)
+        capture_path = self._screenshot_capture_path
+
+        def worker():
+            sgf, err = self._run_recognizer(to_move, capture_path)
+            if err:
+                self.log("library capture: " + err, OUTPUT_INFO)
+            Clock.schedule_once(lambda _dt: self._finish_library_capture(sgf, category, capture_path, popup), -1)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_library_capture(self, sgf, category, capture_path, popup):
+        if not sgf or not sgf.lstrip().startswith("("):
+            self.controls.set_status("截图入库已取消或失败 / capture cancelled or failed", STATUS_INFO)
+            return
+        try:
+            from katrain.core.library import default_library
+
+            root = KaTrainSGF.parse_sgf(sgf)
+            nb = len(root.get_list_property("AB", []))
+            nw = len(root.get_list_property("AW", []))
+            size = int(root.get_property("SZ", 19) or 19)
+            img = None
+            try:
+                from PIL import Image as _PILImage
+
+                img = _PILImage.open(capture_path)
+            except Exception:  # noqa
+                img = None
+            name = "棋形 " + time.strftime("%m-%d %H:%M")
+            default_library().add_entry(sgf, image=img, name=name, category=category, size=size, nb=nb, nw=nw)
+        except Exception as exc:  # noqa
+            self.controls.set_status(f"入库失败: {exc}", STATUS_INFO)
+            return
+        try:  # also load it so the user sees what was captured
+            self._load_move_tree_from_sgf(sgf)
+        except Exception:  # noqa
+            pass
+        if popup is not None:
+            try:
+                popup.refresh()
+            except Exception:  # noqa
+                pass
+        self.controls.set_status(f"已入库：{name}（{category}）", STATUS_INFO)
+
     def on_touch_up(self, touch):
         if touch.is_mouse_scrolling:
             touching_board = self.board_gui.collide_point(*touch.pos) or self.board_controls.collide_point(*touch.pos)
@@ -737,6 +1053,11 @@ class KaTrainGui(Screen, KaTrainBase):
         shift_pressed = "shift" in modifiers
         if self.controls.note.focus:
             return  # when making notes, don't allow keyboard shortcuts
+        if keycode[1] in ("shift", "rshift"):   # hold Shift -> peek best-move hints
+            if not self.peek_hints:
+                self.peek_hints = True
+                self.board_gui.redraw_hover_contents_trigger()
+            return
         popup = self.popup_open
         if popup:
             if keycode[1] in [
@@ -807,6 +1128,10 @@ class KaTrainGui(Screen, KaTrainBase):
             self.controls.set_status(i18n._("Copied SGF to clipboard."), STATUS_INFO)
         elif keycode[1] == Theme.KEY_PASTE and ctrl_pressed:
             self.load_sgf_from_clipboard()
+        elif keycode[1] == Theme.KEY_IMPORT_SCREENSHOT and ctrl_pressed:
+            self.import_board_from_screenshot()
+        elif keycode[1] == Theme.KEY_BOARD_LIBRARY and ctrl_pressed:
+            self.analysis_controls.dropdown.open_board_library_popup()
         elif keycode[1] == Theme.KEY_NAV_PREV_BRANCH and shift_pressed:
             self("undo", "main-branch")
         elif keycode[1] == Theme.KEY_DEEPERANALYSIS_POPUP:
@@ -837,7 +1162,21 @@ class KaTrainGui(Screen, KaTrainBase):
                 else:
                     self(*shortcut)
 
+    def _on_mouse_down(self, _window, _x, _y, button, modifiers):
+        # mouse side buttons: mouse4 = back -> undo, mouse5 = forward -> redo
+        if button not in ("mouse4", "mouse5"):
+            return
+        if self.controls.note.focus or self.popup_open or self.contributing:
+            return
+        ctrl_pressed = "ctrl" in modifiers or ("meta" in modifiers and kivy_platform == "macosx")
+        shift_pressed = "shift" in modifiers
+        n = 1 + shift_pressed * 9 + ctrl_pressed * 9999
+        self("undo" if button == "mouse4" else "redo", n)
+
     def _on_keyboard_up(self, _keyboard, keycode):
+        if keycode[1] in ("shift", "rshift") and self.peek_hints:   # release Shift -> hide peeked hints
+            self.peek_hints = False
+            self.board_gui.redraw_hover_contents_trigger()
         if keycode[1] in ["alt", "tab"]:
             Clock.schedule_once(lambda *_args: self._single_key_action(keycode), 0.05)
 
