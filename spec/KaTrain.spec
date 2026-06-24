@@ -68,6 +68,14 @@ if is_macos:
 hiddenimports = kivy_deps.get('hiddenimports', [])
 if is_windows:
     hiddenimports.extend(["win32file", "win32timezone", "six"])
+# Screenshot board recognition (katrain.core.board_ocr) + native dialogs run in a child process
+# spawned via `--katrain-subtask`; their deps are imported lazily so PyInstaller can't see them.
+hiddenimports.extend([
+    "numpy",
+    "PIL", "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont", "PIL.ImageGrab", "PIL.ImageTk",
+    "tkinter", "tkinter.filedialog", "tkinter.simpledialog",
+    "katrain.core.subtasks", "katrain.core.screenshot_import", "katrain.core.board_ocr",
+])
 
 # Platform-specific hooks and excludes
 hookspath = kivy_deps.get('hookspath', [])
@@ -75,8 +83,13 @@ hookspath.append(kivymd_hooks_path)
 # Add custom KivyMD hook directory
 hookspath.append(SPECPATH)
 
-# Exclude problematic modules
-excludes = kivy_deps.get('excludes', []) + ["scipy", "pandas", "numpy", "matplotlib", "docutils"]
+# Exclude problematic modules. NOTE: numpy is intentionally NOT excluded - the screenshot board
+# recogniser (katrain.core.board_ocr) needs it; excluding it makes that feature fail when frozen.
+# Also strip tkinter/_tkinter: kivy's get_deps_minimal() force-excludes them, but the native
+# dialogs and the screenshot editor (katrain.core.subtasks / screenshot_import) run tkinter in a
+# child process, so a frozen build must bundle it (excludes would otherwise prune the hiddenimports).
+excludes = [e for e in (kivy_deps.get('excludes', []) + ["scipy", "pandas", "matplotlib", "docutils"])
+            if e not in ("tkinter", "_tkinter")]
 if is_windows:
     excludes.append("mkl")
 

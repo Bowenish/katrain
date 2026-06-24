@@ -4,7 +4,6 @@ import os
 import re
 import stat
 import subprocess
-import sys
 import threading
 import time
 from typing import Any, Dict, List, Tuple, Union
@@ -1035,22 +1034,16 @@ def _native_text_prompt(title, initial=""):
     Kivy's SDL2 text field doesn't pop the IME candidate window, so Chinese can't be typed
     there. We run a tiny tkinter askstring in a subprocess (its own Tk loop, no clash with
     Kivy) and read the result from a temp file as UTF-8. Returns the text, or None if cancelled.
+    Source- or frozen-safe via helper_cmd (see katrain.core.subtasks).
     """
     import tempfile
 
+    from katrain.core.subtasks import helper_cmd, helper_cwd
+
     fd, path = tempfile.mkstemp(suffix=".txt")
     os.close(fd)
-    script = (
-        "import sys, ctypes, tkinter as tk\n"
-        "from tkinter import simpledialog\n"
-        "try: ctypes.windll.shcore.SetProcessDpiAwareness(1)\n"
-        "except Exception: pass\n"
-        "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
-        "v = simpledialog.askstring(sys.argv[2], '请输入名称：', initialvalue=sys.argv[3], parent=r)\n"
-        "open(sys.argv[1], 'w', encoding='utf-8').write('\\x00' if v is None else v)\n"
-    )
     try:
-        subprocess.run([sys.executable, "-c", script, path, title, initial or ""],
+        subprocess.run(helper_cmd("ask_text", path, title, initial or ""), cwd=helper_cwd(),
                        timeout=300, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         with open(path, encoding="utf-8") as f:
             v = f.read()
@@ -1385,42 +1378,36 @@ class BoardLibraryPopup(BoxLayout):
             block.add_widget(lbl)
         return block
 
+    def _menu(self, title, items):
+        """A small popup of stacked action buttons. `items`: list of (label, callback[, danger])."""
+        box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
+        pop = Popup(title=title, title_font=Theme.DEFAULT_FONT,
+                    content=box, size_hint=(None, None), size=(dp(260), dp(250)))
+        for it in items:
+            label, fn = it[0], it[1]
+            danger = it[2] if len(it) > 2 else False
+            b = SizedRectangleButton(text=label, font_name=Theme.DEFAULT_FONT, size_hint=(1, None), height=dp(46))
+            b.background_color = Theme.BOX_BACKGROUND_COLOR
+            b.background_radius = dp(8)
+            b.outline_color = Theme.ERROR_BORDER_COLOR if danger else Theme.BUTTON_BORDER_COLOR
+            b.bind(on_release=lambda _w, _fn=fn: (pop.dismiss(), _fn()))
+            box.add_widget(b)
+        pop.open()
+
     def _card_menu(self, e):
         """The per-card '⋯' menu: rename / move / delete (keeps cards uncluttered)."""
-        box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
-        pop = Popup(title=e.get("name", "棋形"), title_font=Theme.DEFAULT_FONT,
-                    content=box, size_hint=(None, None), size=(dp(260), dp(250)))
-
-        def item(text, fn, danger=False):
-            b = SizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(1, None), height=dp(46))
-            b.background_color = Theme.BOX_BACKGROUND_COLOR
-            b.background_radius = dp(8)
-            b.outline_color = Theme.ERROR_BORDER_COLOR if danger else Theme.BUTTON_BORDER_COLOR
-            b.bind(on_release=lambda *_a: (pop.dismiss(), fn(e)))
-            return b
-
-        box.add_widget(item("改名", self._rename_entry))
-        box.add_widget(item("移动到…", self._move_entry))
-        box.add_widget(item("删除", self._delete_entry, danger=True))
-        pop.open()
+        self._menu(e.get("name", "棋形"), [
+            ("改名", lambda: self._rename_entry(e)),
+            ("移动到…", lambda: self._move_entry(e)),
+            ("删除", lambda: self._delete_entry(e), True),
+        ])
 
     def _folder_menu(self, path):
-        box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
-        pop = Popup(title=leaf_name(path), title_font=Theme.DEFAULT_FONT,
-                    content=box, size_hint=(None, None), size=(dp(260), dp(250)))
-
-        def item(text, fn, danger=False):
-            b = SizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(1, None), height=dp(46))
-            b.background_color = Theme.BOX_BACKGROUND_COLOR
-            b.background_radius = dp(8)
-            b.outline_color = Theme.ERROR_BORDER_COLOR if danger else Theme.BUTTON_BORDER_COLOR
-            b.bind(on_release=lambda *_a: (pop.dismiss(), fn()))
-            return b
-
-        box.add_widget(item("改名", lambda: self._rename_folder(path)))
-        box.add_widget(item("移动到…", lambda: self._move_folder(path)))
-        box.add_widget(item("删除", lambda: self._del_folder_confirm(path), danger=True))
-        pop.open()
+        self._menu(leaf_name(path), [
+            ("改名", lambda: self._rename_folder(path)),
+            ("移动到…", lambda: self._move_folder(path)),
+            ("删除", lambda: self._del_folder_confirm(path), True),
+        ])
 
     def _move_folder(self, path):
         """Move this whole folder (with its sub-folders & boards) under another folder.

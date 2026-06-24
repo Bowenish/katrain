@@ -28,6 +28,8 @@ dependencies = [
     "kivymd==0.104.1",
     "websocket-client>=1.9.0",
     "certifi>=2026.2.25",
+    "numpy>=1.26,<3",
+    "pillow>=10",
 ]
 
 [project.urls]

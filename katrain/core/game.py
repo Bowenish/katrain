@@ -599,6 +599,10 @@ class Game(BaseGame):
         if mode == "extra":
             visits = cn.analysis_visits_requested + engine.config["max_visits"]
             self.katrain.controls.set_status(i18n._("extra analysis").format(visits=visits), STATUS_ANALYSIS)
+            if self.region_of_interest:
+                # region queries never set rootInfo; pair with a normal (fast) full-board query so
+                # the best-move points still display (see reset_current_analysis / play).
+                cn.analyze(engine, priority=PRIORITY_EXTRA_ANALYSIS, time_limit=False, analyze_fast=True)
             cn.analyze(
                 engine,
                 visits=visits,
@@ -627,6 +631,11 @@ class Game(BaseGame):
                     continue
                 if move_range and (not node.depth - 1 in range(move_range[0], move_range[1] + 1)):
                     continue
+                if self.region_of_interest:
+                    # region queries never set rootInfo; pair with a cheap full-board query so the
+                    # best-move points display for re-analysed nodes too (see reset_current_analysis).
+                    node.analyze(engine, priority=-1_000_000, time_limit=False, report_every=None,
+                                 analyze_fast=True)
                 node.analyze(engine, visits=visits, priority=-1_000_000, time_limit=False, report_every=None,
                              region_of_interest=self.region_of_interest)
             if not move_range:

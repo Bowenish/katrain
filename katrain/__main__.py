@@ -6,6 +6,18 @@ import sys
 
 os.environ["KCFG_KIVY_LOG_LEVEL"] = os.environ.get("KCFG_KIVY_LOG_LEVEL", "warning")
 
+# Child-process helper dispatch (native dialogs, screenshot recognizer). From source these run
+# as `python -m katrain --katrain-subtask <task> ...`; in a packaged build sys.executable is the
+# app exe, so it re-runs itself with this sentinel. Route to the task and exit BEFORE importing
+# Kivy, so the child stays light and never spins up a second GUI window. (see katrain.core.subtasks)
+if "--katrain-subtask" in sys.argv:
+    _sti = sys.argv.index("--katrain-subtask")
+    _task = sys.argv[_sti + 1] if _sti + 1 < len(sys.argv) else ""
+    _rest = sys.argv[_sti + 2:]
+    from katrain.core.subtasks import run_subtask
+
+    raise SystemExit(run_subtask(_task, _rest))
+
 from kivy.utils import platform as kivy_platform
 
 if kivy_platform == "win":
@@ -720,16 +732,17 @@ class KaTrainGui(Screen, KaTrainBase):
         """Run the frame-select + recognise subprocess; return (sgf, err). Blocking - call off-thread.
 
         It runs in a separate process (its own tkinter overlay, so it does not fight Kivy's
-        event loop) and prints the SGF to stdout."""
-        pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # dir that contains the 'katrain' package
+        event loop) and prints the SGF to stdout. Source- or frozen-safe via helper_cmd."""
+        from katrain.core.subtasks import helper_cmd, helper_cwd
+
         try:
             proc = subprocess.run(
-                [sys.executable, "-m", "katrain.core.screenshot_import", "--stdout", "--to-move", to_move,
-                 "--debug", "--edit", "--save-capture", capture_path],
+                helper_cmd("screenshot", "--stdout", "--to-move", to_move,
+                           "--debug", "--edit", "--save-capture", capture_path),
                 capture_output=True,
                 text=True,
                 timeout=900,   # includes manual editing time
-                cwd=pkg_root,
+                cwd=helper_cwd(),   # so `python -m katrain` resolves the package from a source checkout
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             return (proc.stdout or "").strip(), (proc.stderr or "").strip()
@@ -807,6 +820,35 @@ class KaTrainGui(Screen, KaTrainBase):
         if e:
             self.library_load(e)
 
+    def _board_snapshot(self, capture_image=True):
+        """(thumbnail|None, size, n_black, n_white) for the live board - shared by every library
+        save path. The thumbnail is a PNG snapshot of the board widget (None if export fails)."""
+        img = None
+        if capture_image:
+            try:
+                from PIL import Image as _Img
+
+                tmp = os.path.join(tempfile.gettempdir(), "katrain_boardshot.png")
+                self.board_gui.export_to_png(tmp)
+                img = _Img.open(tmp)
+            except Exception:  # noqa
+                img = None
+        sx, sy = self.game.board_size
+        nb = sum(1 for s in self.game.stones if s.player == "B")
+        nw = sum(1 for s in self.game.stones if s.player == "W")
+        return img, max(sx, sy), nb, nw
+
+    def _resolve_target_category(self, category=None, popup=None):
+        """Folder a new library card should land in: explicit arg > the popup's open folder
+        (ignoring the '全部' pseudo-folder) > the last folder worked in > 未分类."""
+        from katrain.core.library import DEFAULT_CATEGORY
+
+        cur = getattr(popup, "current", None)
+        return (category
+                or (cur if (cur and cur != "全部") else None)
+                or getattr(self, "library_target", None)
+                or DEFAULT_CATEGORY)
+
     def _autosave_current_entry(self):
         """Quietly save edits back onto the currently-loaded library card, if any.
 
@@ -823,19 +865,8 @@ class KaTrainGui(Screen, KaTrainBase):
             return
         try:
             sgf = self.game.root.sgf()
-            img = None
-            try:
-                from PIL import Image as _Img
-
-                tmp = os.path.join(tempfile.gettempdir(), "katrain_boardshot.png")
-                self.board_gui.export_to_png(tmp)
-                img = _Img.open(tmp)
-            except Exception:  # noqa
-                img = None
-            sx, sy = self.game.board_size
-            nb = sum(1 for s in self.game.stones if s.player == "B")
-            nw = sum(1 for s in self.game.stones if s.player == "W")
-            lib.update_entry(eid, sgf, image=img, size=max(sx, sy), nb=nb, nw=nw)
+            img, size, nb, nw = self._board_snapshot()
+            lib.update_entry(eid, sgf, image=img, size=size, nb=nb, nw=nw)
         except Exception:  # noqa
             pass
 
@@ -883,19 +914,7 @@ class KaTrainGui(Screen, KaTrainBase):
             return
         sgf = self.game.root.sgf()
         # thumbnail: snapshot the live board widget (exact look)
-        img = None
-        try:
-            from PIL import Image as _Img
-
-            tmp = os.path.join(tempfile.gettempdir(), "katrain_boardshot.png")
-            self.board_gui.export_to_png(tmp)
-            img = _Img.open(tmp)
-        except Exception:  # noqa
-            img = None
-        sx, sy = self.game.board_size
-        size = max(sx, sy)
-        nb = sum(1 for s in self.game.stones if s.player == "B")
-        nw = sum(1 for s in self.game.stones if s.player == "W")
+        img, size, nb, nw = self._board_snapshot()
         lib = default_library()
         eid = getattr(self, "current_entry_id", None)
         existing = lib.get(eid) if (eid and category is None) else None
@@ -905,11 +924,7 @@ class KaTrainGui(Screen, KaTrainBase):
                 cat = existing.get("category", DEFAULT_CATEGORY)
                 verb = "已更新"
             else:          # nothing tied to this board yet -> create a new card in the target folder
-                cur = getattr(popup, "current", None)
-                cat = (category
-                       or (cur if (cur and cur != "全部") else None)
-                       or getattr(self, "library_target", None)
-                       or DEFAULT_CATEGORY)
+                cat = self._resolve_target_category(category, popup)
                 name = "棋形 " + time.strftime("%m-%d %H:%M")
                 new_entry = lib.add_entry(sgf, image=img, name=name, category=cat, size=size, nb=nb, nw=nw)
                 self.current_entry_id = new_entry.get("id")
@@ -927,20 +942,12 @@ class KaTrainGui(Screen, KaTrainBase):
 
     def _native_pick_sgf(self):
         """Native file dialog to pick an SGF (own subprocess; proper OS file browser). Returns path or None."""
+        from katrain.core.subtasks import helper_cmd, helper_cwd
+
         fd, out_path = tempfile.mkstemp(suffix=".txt")
         os.close(fd)
-        script = (
-            "import sys, ctypes, tkinter as tk\n"
-            "from tkinter import filedialog\n"
-            "try: ctypes.windll.shcore.SetProcessDpiAwareness(1)\n"
-            "except Exception: pass\n"
-            "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
-            "f = filedialog.askopenfilename(title='选择 SGF 棋谱', "
-            "filetypes=[('SGF 棋谱', '*.sgf'), ('所有文件', '*.*')])\n"
-            "open(sys.argv[1], 'w', encoding='utf-8').write(f or '')\n"
-        )
         try:
-            subprocess.run([sys.executable, "-c", script, out_path], timeout=600,
+            subprocess.run(helper_cmd("pick_sgf", out_path), timeout=600, cwd=helper_cwd(),
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             with open(out_path, encoding="utf-8") as fh:
                 p = fh.read().strip()
@@ -981,36 +988,17 @@ class KaTrainGui(Screen, KaTrainBase):
         name = os.path.splitext(os.path.basename(path))[0]
         # lock the imported game's metadata NOW (self.game is correct here); the thumbnail is taken
         # a moment later once the board has rendered.
-        sx, sy = self.game.board_size
-        meta = (max(sx, sy),
-                sum(1 for s in self.game.stones if s.player == "B"),
-                sum(1 for s in self.game.stones if s.player == "W"))
+        _, size, nb, nw = self._board_snapshot(capture_image=False)
+        meta = (size, nb, nw)
         Clock.schedule_once(lambda _dt: self._finish_save_to_library(sgf, name, category, popup, meta), 0.4)
 
     def _finish_save_to_library(self, sgf, name, category, popup, meta=None):
-        from katrain.core.library import default_library, DEFAULT_CATEGORY
+        from katrain.core.library import default_library
 
-        img = None
-        try:
-            from PIL import Image as _Img
-
-            tmp = os.path.join(tempfile.gettempdir(), "katrain_boardshot.png")
-            self.board_gui.export_to_png(tmp)
-            img = _Img.open(tmp)
-        except Exception:  # noqa
-            img = None
-        if meta is not None:
+        img, size, nb, nw = self._board_snapshot()
+        if meta is not None:   # metadata locked at import time (board may have changed since)
             size, nb, nw = meta
-        else:
-            sx, sy = self.game.board_size
-            size = max(sx, sy)
-            nb = sum(1 for s in self.game.stones if s.player == "B")
-            nw = sum(1 for s in self.game.stones if s.player == "W")
-        cur = getattr(popup, "current", None)
-        cat = (category
-               or (cur if (cur and cur != "全部") else None)
-               or getattr(self, "library_target", None)
-               or DEFAULT_CATEGORY)
+        cat = self._resolve_target_category(category, popup)
         try:
             default_library().add_entry(sgf, image=img, name=name, category=cat, size=size, nb=nb, nw=nw)
         except Exception as exc:  # noqa
