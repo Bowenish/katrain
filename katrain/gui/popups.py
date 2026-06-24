@@ -48,7 +48,7 @@ from katrain.core.constants import (
     ADDITIONAL_MOVE_ORDER,
 )
 from katrain.core.lang import i18n, rank_label
-from katrain.core.library import default_library, DEFAULT_CATEGORY
+from katrain.core.library import default_library, DEFAULT_CATEGORY, SEP, norm_path, parent_path, leaf_name
 from katrain.core.sgf_parser import Move
 from katrain.core.utils import PATHS, find_package_resource, evaluation_class
 from katrain.gui.kivyutils import (
@@ -1073,32 +1073,17 @@ class BoardLibraryPopup(BoxLayout):
     All user-visible widgets use Theme.DEFAULT_FONT so Chinese text renders.
     """
 
-    ALL = "全部"            # pseudo-category: show every entry
-    MANAGE_ITEM = "管理分类…"   # dropdown action: open the manager (create / rename / delete)
-
     def __init__(self, **kwargs):
         super().__init__(orientation="vertical", spacing=dp(6), padding=dp(8), **kwargs)
         self.katrain = None
         self.popup = None
         self.lib = default_library()
-        self.current = self.ALL
+        self.current = ""   # current folder path; "" = root (顶层)
 
-        # top bar: [category] | [新建空棋盘] [截图入库] ......... [新建分类] [删除分类]
+        # top bar: [面包屑导航 ............] [↑上级] [＋新建文件夹] [导入SGF] [存入当前棋盘]
         bar = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(46), spacing=dp(6), padding=[dp(2), 0])
-        self._disp2val = {}
-        self.category_spinner = Spinner(
-            text=self._display(self.ALL),
-            values=[self._display(self.ALL)],
-            font_name=Theme.DEFAULT_FONT,
-            option_cls=_CJKSpinnerOption,
-            size_hint_x=None,
-            width=dp(160),
-            color=Theme.TEXT_COLOR,
-        )
-        self.category_spinner.bind(text=self._on_category)
-        bar.add_widget(self._lbl("分类", size_hint_x=None, width=dp(40)))
-        bar.add_widget(self.category_spinner)
-        bar.add_widget(Widget())  # spacer; create actions live on the first card, manage in the dropdown
+        self.crumb = BoxLayout(orientation="horizontal", spacing=dp(2))
+        bar.add_widget(self.crumb)
 
         def barbtn(text, cb):
             b = AutoSizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(None, 1))
@@ -1108,6 +1093,9 @@ class BoardLibraryPopup(BoxLayout):
             b.bind(on_release=lambda *_a: cb())
             return b
 
+        self.up_btn = barbtn("↑ 上级", self._go_up)
+        bar.add_widget(self.up_btn)
+        bar.add_widget(barbtn("＋ 新建文件夹", self._new_folder))
         bar.add_widget(barbtn("导入SGF", self._import_sgf))
         bar.add_widget(barbtn("存入当前棋盘", self._save_current))
         self.add_widget(bar)
@@ -1138,33 +1126,32 @@ class BoardLibraryPopup(BoxLayout):
         kw.setdefault("color", Theme.TEXT_COLOR)
         return Label(text=text, **kw)
 
-    def _display(self, value):
-        """Decorate a category value for the dropdown so the three kinds are distinct."""
-        if value == self.ALL:
-            return "【全部】"
-        if value == DEFAULT_CATEGORY:
-            return "未分类（默认）"
-        return value
-
-    def _rebuild_categories(self):
-        """Refresh spinner options (display strings) + the display->value map. Returns real values.
-
-        The dropdown ends with action items: '＋ 新建分类' always, and '✕ 删除…' only when the
-        current selection is a deletable custom category."""
-        values = [self.ALL] + self.lib.categories()
-        self._disp2val = {self._display(v): v for v in values}
-        disp = [self._display(v) for v in values]
-        disp.append(self.MANAGE_ITEM)   # create / rename / delete all live in the manager
-        self.category_spinner.values = disp
-        return values
-
-    def _on_category(self, _spinner, text):
-        if text == self.MANAGE_ITEM:                    # action item, not a category switch
-            self.category_spinner.text = self._display(self.current)   # revert the selection
-            self._manage_categories()
-            return
-        self.current = self._disp2val.get(text, self.ALL)
+    # --------------------------------------------------------- navigation --
+    def _enter(self, path):
+        self.current = norm_path(path)
         self.refresh()
+
+    def _go_up(self):
+        self._enter(parent_path(self.current))
+
+    def _rebuild_crumb(self):
+        """Rebuild the clickable breadcrumb: 根 › jinjin › 第一节课 ."""
+        self.crumb.clear_widgets()
+        segs = [("根", "")]
+        acc = ""
+        for p in [s for s in self.current.split(SEP) if s]:
+            acc = (acc + SEP + p) if acc else p
+            segs.append((p, acc))
+        for i, (label, path) in enumerate(segs):
+            if i > 0:
+                self.crumb.add_widget(self._lbl("›", size_hint_x=None, width=dp(14)))
+            b = Button(text=label, font_name=Theme.DEFAULT_FONT, size_hint_x=None, width=dp(40),
+                       background_normal="", background_down="", background_color=[0, 0, 0, 0],
+                       color=Theme.TEXT_COLOR)
+            b.bind(texture_size=lambda w, ts: setattr(w, "width", ts[0] + dp(10)))
+            b.bind(on_release=lambda _w, pth=path: self._enter(pth))
+            self.crumb.add_widget(b)
+        self.crumb.add_widget(Widget())   # spacer pushes the bar buttons to the right
 
     # ------------------------------------------------------------ render --
     def refresh(self, *_args):
@@ -1172,16 +1159,17 @@ class BoardLibraryPopup(BoxLayout):
             return
         self._refreshing = True
         try:
-            values = self._rebuild_categories()
-            if self.current not in values:
-                self.current = self.ALL
-            want = self._display(self.current)
-            if self.category_spinner.text != want:
-                self.category_spinner.text = want   # guarded: re-entry into refresh is a no-op
+            # if the current folder was deleted out from under us, climb to the nearest survivor
+            folders = self.lib._all_folders()
+            while self.current and self.current not in folders:
+                self.current = parent_path(self.current)
+            self._rebuild_crumb()
+            self.up_btn.disabled = (self.current == "")
             self.grid.clear_widgets()
-            self.grid.add_widget(self._make_new_card())   # always first: blank-board / empty state
-            cat = None if self.current == self.ALL else self.current
-            for e in self.lib.entries(cat):
+            self.grid.add_widget(self._make_new_card())     # always first: capture / blank board
+            for f in self.lib.child_folders(self.current):  # then sub-folders
+                self.grid.add_widget(self._make_folder_card(f))
+            for e in self.lib.entries(self.current):         # then boards in this folder
                 self.grid.add_widget(self._make_card(e))
         finally:
             self._refreshing = False
@@ -1223,10 +1211,19 @@ class BoardLibraryPopup(BoxLayout):
         btn.bind(on_release=lambda *_a: self.load_entry(e))
         card.add_widget(btn)
         footer = BoxLayout(orientation="horizontal", size_hint_y=0.22, spacing=dp(2))
-        info = self._lbl(f"{e.get('name', '棋形')}  SZ{e.get('size', 19)}  ●{e.get('nb', 0)} ○{e.get('nw', 0)}",
-                         font_size=dp(13))
-        footer.add_widget(info)
-        menu = Button(text="⋯", font_name=Theme.DEFAULT_FONT, font_size=dp(20), size_hint_x=None, width=dp(34),
+        # text column: name on one (clipped) line, board meta on a second line — both bound to their
+        # own width via text_size so long names ellipsize INSIDE the card instead of bleeding over it.
+        txt = BoxLayout(orientation="vertical", spacing=0)
+        name_lbl = self._lbl(e.get("name", "棋形"), font_size=dp(13), halign="left", valign="bottom",
+                             shorten=True, shorten_from="right")
+        name_lbl.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+        meta_lbl = self._lbl(f"SZ{e.get('size', 19)}  ●{e.get('nb', 0)} ○{e.get('nw', 0)}",
+                             font_size=dp(11), halign="left", valign="top", color=Theme.BUTTON_INACTIVE_COLOR)
+        meta_lbl.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+        txt.add_widget(name_lbl)
+        txt.add_widget(meta_lbl)
+        footer.add_widget(txt)
+        menu = Button(text="⋯", font_name=Theme.DEFAULT_FONT, font_size=dp(20), size_hint_x=None, width=dp(30),
                       background_normal="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
         menu.bind(on_release=lambda *_a: self._card_menu(e))
         footer.add_widget(menu)
@@ -1248,8 +1245,48 @@ class BoardLibraryPopup(BoxLayout):
             return b
 
         box.add_widget(item("改名", self._rename_entry))
-        box.add_widget(item("移动分类", self._move_entry))
+        box.add_widget(item("移动到…", self._move_entry))
         box.add_widget(item("删除", self._delete_entry, danger=True))
+        pop.open()
+
+    def _make_folder_card(self, path):
+        """A folder tile: click to open; '⋯' to rename / delete."""
+        card = self._card_base()
+        card.background_color = Theme.LIGHTER_BACKGROUND_COLOR
+        card.outline_color = Theme.BUTTON_BORDER_COLOR
+        card.outline_width = dp(1.2)
+        btn = Button(text=f"▣\n{leaf_name(path)}", font_name=Theme.DEFAULT_FONT, font_size=dp(20),
+                     halign="center", valign="middle", size_hint_y=0.78,
+                     background_normal="", background_down="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
+        btn.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+        btn.bind(on_release=lambda *_a: self._enter(path))
+        card.add_widget(btn)
+        footer = BoxLayout(orientation="horizontal", size_hint_y=0.22, spacing=dp(2))
+        n_sub = len(self.lib.child_folders(path))
+        n_ent = len(self.lib.entries(path))
+        footer.add_widget(self._lbl(f"文件夹 · {n_sub}夹 {n_ent}盘", font_size=dp(13)))
+        menu = Button(text="⋯", font_name=Theme.DEFAULT_FONT, font_size=dp(20), size_hint_x=None, width=dp(34),
+                      background_normal="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
+        menu.bind(on_release=lambda *_a: self._folder_menu(path))
+        footer.add_widget(menu)
+        card.add_widget(footer)
+        return card
+
+    def _folder_menu(self, path):
+        box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
+        pop = Popup(title=leaf_name(path), title_font=Theme.DEFAULT_FONT,
+                    content=box, size_hint=(None, None), size=(dp(260), dp(200)))
+
+        def item(text, fn, danger=False):
+            b = SizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(1, None), height=dp(46))
+            b.background_color = Theme.BOX_BACKGROUND_COLOR
+            b.background_radius = dp(8)
+            b.outline_color = Theme.ERROR_BORDER_COLOR if danger else Theme.BUTTON_BORDER_COLOR
+            b.bind(on_release=lambda *_a: (pop.dismiss(), fn()))
+            return b
+
+        box.add_widget(item("改名", lambda: self._rename_folder(path)))
+        box.add_widget(item("删除", lambda: self._del_folder_confirm(path), danger=True))
         pop.open()
 
     # ------------------------------------------------------------ actions --
@@ -1276,89 +1313,49 @@ class BoardLibraryPopup(BoxLayout):
     def _capture(self):
         if not self.katrain:
             return
-        cat = DEFAULT_CATEGORY if self.current == self.ALL else self.current
-        self.katrain.library_capture(cat, self)
+        self.katrain.library_capture(self.current or DEFAULT_CATEGORY, self)
 
     def _reserved(self, name):
-        """A category name that would collide with a decorated/pseudo/action label in the spinner."""
-        name = (name or "").strip()
-        return name in (self.ALL, self.MANAGE_ITEM,
-                        self._display(self.ALL), self._display(DEFAULT_CATEGORY))
+        """Folder names that are empty are not allowed (everything else is fine)."""
+        return not (name or "").strip()
 
-    def _new_category(self, after=lambda: None):
+    def _new_folder(self):
+        """Create a sub-folder inside the current folder (a single leaf name, no '/')."""
         def on_ok(name):
-            name = (name or "").strip()
-            if name and not self._reserved(name):
-                self.lib.add_category(name)
-                self._select(name)
-                after()
-        self._ask_text("新建分类", "", on_ok)
-
-    def _manage_categories(self):
-        """A dedicated manager: list every custom category with rename / delete (confirmed)."""
-        box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
-        scroll = ScrollView()
-        lst = GridLayout(cols=1, spacing=dp(6), size_hint_y=None, padding=dp(2))
-        lst.bind(minimum_height=lst.setter("height"))
-        scroll.add_widget(lst)
-        box.add_widget(scroll)
-        pop = Popup(title="管理分类", title_font=Theme.DEFAULT_FONT, content=box,
-                    size_hint=(None, None), size=(dp(440), dp(480)))
-        foot = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(8))
-
-        def rebuild():
-            lst.clear_widgets()
-            cats = [c for c in self.lib.categories() if c != DEFAULT_CATEGORY]
-            if not cats:
-                lst.add_widget(self._lbl("暂无自定义分类，点下方『＋ 新建分类』创建",
-                                         size_hint_y=None, height=dp(48)))
+            name = (name or "").strip().replace(SEP, "·")   # a leaf only; '/' would forge a deeper path
+            if self._reserved(name):
                 return
-            for cat in cats:
-                row = BGBoxLayout(orientation="horizontal", size_hint_y=None, height=dp(52),
-                                  spacing=dp(6), padding=dp(6))
-                row.background_color = Theme.BOX_BACKGROUND_COLOR
-                row.background_radius = dp(6)
-                nm = self._lbl(f"{cat}   ({len(self.lib.entries(cat))})", halign="left", valign="middle")
-                nm.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
-                row.add_widget(nm)
-                row.add_widget(self._btn("改名", lambda c=cat: self._rename_category(c, rebuild),
-                                         size_hint=(None, 1), width=dp(78)))
-                db = self._btn("删除", lambda c=cat: self._del_category_confirm(c, rebuild),
-                               size_hint=(None, 1), width=dp(78))
-                db.outline_color = Theme.ERROR_BORDER_COLOR
-                row.add_widget(db)
-                lst.add_widget(row)
+            full = (self.current + SEP + name) if self.current else name
+            self.lib.add_category(full)
+            self._enter(full)   # step into the freshly-made folder
+        self._ask_text("新建文件夹", "", on_ok)
 
-        foot.add_widget(self._btn("＋ 新建分类", lambda: self._new_category(rebuild)))
-        foot.add_widget(self._btn("关闭", pop.dismiss))
-        box.add_widget(foot)
-        rebuild()
-        pop.open()
-
-    def _rename_category(self, cat, after=lambda: None):
+    def _rename_folder(self, path):
         def on_ok(name):
-            name = (name or "").strip()
-            if name and name != cat and not self._reserved(name):
-                self.lib.rename_category(cat, name)
-                if self.current == cat:
-                    self.current = name
-                self.refresh()
-                after()
-        self._ask_text("分类改名", cat, on_ok)
+            name = (name or "").strip().replace(SEP, "·")
+            if self._reserved(name) or name == leaf_name(path):
+                return
+            parent = parent_path(path)
+            new_full = (parent + SEP + name) if parent else name
+            self.lib.rename_category(path, new_full)
+            # keep the user where they were if the rename moved their current folder
+            if self.current == path or self.current.startswith(path + SEP):
+                self.current = new_full + self.current[len(path):]
+            self.refresh()
+        self._ask_text("文件夹改名", leaf_name(path), on_ok)
 
-    def _del_category_confirm(self, cat, after=lambda: None):
-        n = len(self.lib.entries(cat))
+    def _del_folder_confirm(self, path):
+        n = len(self.lib.entries(path))
+        subs = len(self.lib.child_folders(path))
 
         def do():
-            self.lib.remove_category(cat)
-            if self.current == cat:
-                self._select(self.ALL)
-            else:
-                self.refresh()
-            after()
+            self.lib.remove_category(path)
+            if self.current == path or self.current.startswith(path + SEP):
+                self.current = parent_path(path)
+            self.refresh()
 
-        self._confirm(f"删除分类「{cat}」？",
-                      f"其中 {n} 个棋形将移到「未分类」（不会删除棋形）。",
+        self._confirm(f"删除文件夹「{leaf_name(path)}」？",
+                      f"将一并删除其 {subs} 个子文件夹；其中 {n} 个棋盘会移到「未分类」（不会删除棋盘）。",
                       do, yes_text="删除", danger=True)
 
     def _confirm(self, title, message, on_yes, yes_text="确定", danger=False):
@@ -1387,21 +1384,15 @@ class BoardLibraryPopup(BoxLayout):
 
     def _move_entry(self, e):
         def on_ok(cat):
-            cat = (cat or "").strip() or DEFAULT_CATEGORY
-            if self._reserved(cat):
-                cat = DEFAULT_CATEGORY
+            cat = norm_path(cat) or DEFAULT_CATEGORY
             self.lib.set_category(e["id"], cat)
             self.refresh()
-        self._ask_text("移动到分类（输入分类名，可新建）", e.get("category", DEFAULT_CATEGORY), on_ok)
+        # accept a full folder path, e.g. "jinjin/第二节课"; unknown folders are created on the fly
+        self._ask_text("移动到文件夹（可用 / 表示层级，自动新建）", e.get("category", DEFAULT_CATEGORY), on_ok)
 
     def _delete_entry(self, e):
         self.lib.remove_entry(e["id"])
         self.refresh()
-
-    def _select(self, category):
-        if category in ([self.ALL] + self.lib.categories()):
-            self.current = category
-        self.refresh()   # refresh sets the (decorated) spinner text from self.current
 
     def _ask_text(self, title, initial, on_ok):
         # Use a NATIVE input dialog (proper IME / Chinese input). It runs in a subprocess, so

@@ -22,6 +22,28 @@ import uuid
 from typing import Dict, List, Optional
 
 DEFAULT_CATEGORY = "未分类"   # "uncategorised"
+SEP = "/"                     # folder separator inside a category path (e.g. "jinjin/第一节课")
+
+
+def norm_path(path: Optional[str]) -> str:
+    """Collapse a category path: strip blanks, drop empty segments. '' is the root."""
+    parts = [p.strip() for p in (path or "").split(SEP)]
+    return SEP.join(p for p in parts if p)
+
+
+def parent_path(path: str) -> str:
+    path = path or ""
+    return path.rsplit(SEP, 1)[0] if SEP in path else ""
+
+
+def leaf_name(path: str) -> str:
+    """The last segment of a path, i.e. how a folder is shown in the UI."""
+    return (path or "").rsplit(SEP, 1)[-1]
+
+
+def _ancestors_and_self(path: str) -> List[str]:
+    parts = [p for p in (path or "").split(SEP) if p]
+    return [SEP.join(parts[: i + 1]) for i in range(len(parts))]
 
 
 class BoardLibrary:
@@ -55,32 +77,83 @@ class BoardLibrary:
     def categories(self) -> List[str]:
         return list(self.data["categories"])
 
+    def _all_folders(self) -> set:
+        """Every folder path that exists, whether registered explicitly or implied by an entry.
+
+        A category like 'jinjin/第一节课' implies its ancestor folder 'jinjin' even if that
+        ancestor was never added on its own."""
+        folders = set(self.data["categories"])
+        for e in self.data["entries"]:
+            folders.update(_ancestors_and_self(e.get("category", "")))
+        folders.discard("")
+        return folders
+
+    def child_folders(self, parent: str = "") -> List[str]:
+        """Immediate sub-folder paths under `parent` ('' = root). Returns full paths, sorted."""
+        parent = norm_path(parent)
+        prefix = parent + SEP if parent else ""
+        children = set()
+        for c in self._all_folders():
+            if parent:
+                if not c.startswith(prefix):
+                    continue
+                rest = c[len(prefix):]
+            else:
+                rest = c
+            if rest:
+                children.add(prefix + rest.split(SEP, 1)[0])
+        return sorted(children)
+
     def add_category(self, name: str) -> Optional[str]:
-        name = (name or "").strip()
-        if name and name not in self.data["categories"]:
-            self.data["categories"].append(name)
+        """Create a folder at `name` (a path); also registers any missing ancestor folders."""
+        name = norm_path(name)
+        if not name:
+            return None
+        created = name not in self.data["categories"]
+        for anc in _ancestors_and_self(name):
+            if anc not in self.data["categories"]:
+                self.data["categories"].append(anc)
+        if created:
             self.save()
             return name
         return None
 
     def remove_category(self, name: str) -> None:
-        """Delete a category; its entries fall back to the default category."""
-        if name == DEFAULT_CATEGORY or name not in self.data["categories"]:
+        """Delete a folder and every sub-folder under it; affected entries fall back to default."""
+        name = norm_path(name)
+        if name == DEFAULT_CATEGORY or not name:
             return
+        prefix = name + SEP
+
+        def affected(c: str) -> bool:
+            return c == name or c.startswith(prefix)
+
         for e in self.data["entries"]:
-            if e.get("category") == name:
+            if affected(e.get("category", "")):
                 e["category"] = DEFAULT_CATEGORY
-        self.data["categories"] = [c for c in self.data["categories"] if c != name]
+        self.data["categories"] = [c for c in self.data["categories"] if not affected(c)]
         self.save()
 
     def rename_category(self, old: str, new: str) -> None:
-        new = (new or "").strip()
-        if old == DEFAULT_CATEGORY or not new or new in self.data["categories"]:
+        """Rename a folder, re-prefixing all sub-folders and entries beneath it."""
+        old = norm_path(old)
+        new = norm_path(new)
+        if old == DEFAULT_CATEGORY or not old or not new or old == new:
             return
-        self.data["categories"] = [new if c == old else c for c in self.data["categories"]]
+        prefix = old + SEP
+
+        def remap(c: str) -> str:
+            if c == old:
+                return new
+            if c.startswith(prefix):
+                return new + SEP + c[len(prefix):]
+            return c
+
+        cats = {remap(c) for c in self.data["categories"]}
+        cats.update(_ancestors_and_self(new))
+        self.data["categories"] = sorted(cats)
         for e in self.data["entries"]:
-            if e.get("category") == old:
-                e["category"] = new
+            e["category"] = remap(e.get("category", ""))
         self.save()
 
     # ------------------------------------------------------------- entries --
@@ -109,8 +182,9 @@ class BoardLibrary:
             "nb": nb,
             "nw": nw,
         }
-        if entry["category"] not in self.data["categories"]:
-            self.data["categories"].append(entry["category"])
+        for anc in _ancestors_and_self(entry["category"]):
+            if anc not in self.data["categories"]:
+                self.data["categories"].append(anc)
         if image is not None:
             try:
                 os.makedirs(self.thumbs_dir, exist_ok=True)
@@ -122,6 +196,33 @@ class BoardLibrary:
         self.data["entries"].append(entry)
         self.save()
         return entry
+
+    def update_entry(self, entry_id: str, sgf: str, image=None, size: Optional[int] = None,
+                     nb: Optional[int] = None, nw: Optional[int] = None) -> Optional[Dict]:
+        """Overwrite an existing entry's position in place (sgf + thumbnail + counts).
+
+        Keeps the entry's name and category, so editing a saved board saves back onto the same
+        card instead of creating a duplicate."""
+        e = self.get(entry_id)
+        if not e:
+            return None
+        e["sgf"] = sgf
+        if size is not None:
+            e["size"] = size
+        if nb is not None:
+            e["nb"] = nb
+        if nw is not None:
+            e["nw"] = nw
+        if image is not None:
+            try:
+                os.makedirs(self.thumbs_dir, exist_ok=True)
+                im = image.copy()
+                im.thumbnail((300, 300))
+                im.save(self.thumb_path(e))
+            except Exception:
+                pass
+        self.save()
+        return e
 
     def remove_entry(self, entry_id: str) -> None:
         e = self.get(entry_id)
@@ -144,8 +245,10 @@ class BoardLibrary:
         e = self.get(entry_id)
         if not e:
             return
-        if category not in self.data["categories"]:
-            self.data["categories"].append(category)
+        category = norm_path(category) or DEFAULT_CATEGORY
+        for anc in _ancestors_and_self(category):
+            if anc not in self.data["categories"]:
+                self.data["categories"].append(anc)
         e["category"] = category
         self.save()
 

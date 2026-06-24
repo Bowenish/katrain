@@ -403,6 +403,8 @@ class KaTrainGui(Screen, KaTrainBase):
 
     def _do_new_game(self, move_tree=None, analyze_fast=False, sgf_filename=None):
         self.pondering = False
+        self._autosave_current_entry()   # save edits to the board we're leaving before detaching
+        self.current_entry_id = None     # a fresh game detaches from any loaded card (re-set by library_load)
         mode = self.play_analyze_mode
         if (move_tree is not None and mode == MODE_PLAY) or (move_tree is None and mode == MODE_ANALYZE):
             self.play_mode.switch_ui_mode()  # for new game, go to play, for loaded, analyze
@@ -774,7 +776,7 @@ class KaTrainGui(Screen, KaTrainBase):
         self.log("Imported board from screenshot.", OUTPUT_INFO)
 
     def library_load(self, entry):
-        """Load a saved library entry onto the board."""
+        """Load a saved library entry onto the board (and surface its lesson switch bar)."""
         sgf = (entry or {}).get("sgf", "")
         if not sgf:
             return
@@ -783,6 +785,59 @@ class KaTrainGui(Screen, KaTrainBase):
             self.controls.set_status(f"已载入：{entry.get('name', '棋形')}", STATUS_INFO)
         except Exception as exc:  # noqa
             self.controls.set_status(f"载入失败: {exc}", STATUS_INFO)
+        self.library_target = (entry or {}).get("category")   # saves default back to this folder
+        self.current_entry_id = (entry or {}).get("id")        # '存入当前棋盘' will update THIS card
+        self._refresh_lesson_bar(entry)
+
+    def _refresh_lesson_bar(self, entry):
+        """Rebuild the board-switch strip from the loaded entry's folder (its 'lesson')."""
+        lb = getattr(self, "lesson_bar", None)
+        if lb is None:
+            return
+        try:
+            lb.set_lesson(self, (entry or {}).get("category"), (entry or {}).get("id"))
+        except Exception:  # noqa
+            pass
+
+    def lesson_switch(self, category, entry_id):
+        """Switch to another board within the current lesson (from the switch bar)."""
+        from katrain.core.library import default_library
+
+        e = default_library().get(entry_id)
+        if e:
+            self.library_load(e)
+
+    def _autosave_current_entry(self):
+        """Quietly save edits back onto the currently-loaded library card, if any.
+
+        Called when leaving a board (switch / load / new game) and on app close, so positions
+        and games are never lost just because '存入当前棋盘' was forgotten. No-op when the live
+        board isn't tied to a library card."""
+        eid = getattr(self, "current_entry_id", None)
+        if not eid or not getattr(self, "game", None):
+            return
+        from katrain.core.library import default_library
+
+        lib = default_library()
+        if not lib.get(eid):
+            return
+        try:
+            sgf = self.game.root.sgf()
+            img = None
+            try:
+                from PIL import Image as _Img
+
+                tmp = os.path.join(tempfile.gettempdir(), "katrain_boardshot.png")
+                self.board_gui.export_to_png(tmp)
+                img = _Img.open(tmp)
+            except Exception:  # noqa
+                img = None
+            sx, sy = self.game.board_size
+            nb = sum(1 for s in self.game.stones if s.player == "B")
+            nw = sum(1 for s in self.game.stones if s.player == "W")
+            lib.update_entry(eid, sgf, image=img, size=max(sx, sy), nb=nb, nw=nw)
+        except Exception:  # noqa
+            pass
 
     def library_new_blank(self, popup=None, size=19):
         """Create an empty board (no screenshot): add it to the library and load it."""
@@ -800,8 +855,9 @@ class KaTrainGui(Screen, KaTrainBase):
         cur = getattr(popup, "current", None)
         if cur and cur != "全部":
             cat = cur
+        self.library_target = cat   # remember the folder so a later '存入当前棋盘' lands here too
         try:
-            default_library().add_entry(sgf, image=img, name="空棋盘", category=cat, size=size, nb=0, nw=0)
+            entry = default_library().add_entry(sgf, image=img, name="空棋盘", category=cat, size=size, nb=0, nw=0)
         except Exception as exc:  # noqa
             self.controls.set_status(f"新建空棋盘失败 / new blank failed: {exc}", STATUS_INFO)
             return
@@ -809,6 +865,9 @@ class KaTrainGui(Screen, KaTrainBase):
             self._load_move_tree_from_sgf(sgf)
         except Exception:  # noqa
             pass
+        # set AFTER the load: _do_new_game cleared current_entry_id, so editing+saving updates this card
+        self.current_entry_id = entry.get("id")
+        self._refresh_lesson_bar(entry)
         if popup is not None:
             try:
                 popup.refresh()
@@ -837,13 +896,24 @@ class KaTrainGui(Screen, KaTrainBase):
         size = max(sx, sy)
         nb = sum(1 for s in self.game.stones if s.player == "B")
         nw = sum(1 for s in self.game.stones if s.player == "W")
-        cat = category or DEFAULT_CATEGORY
-        cur = getattr(popup, "current", None)
-        if category is None and cur and cur != "全部":
-            cat = cur
-        name = "棋形 " + time.strftime("%m-%d %H:%M")
+        lib = default_library()
+        eid = getattr(self, "current_entry_id", None)
+        existing = lib.get(eid) if (eid and category is None) else None
         try:
-            default_library().add_entry(sgf, image=img, name=name, category=cat, size=size, nb=nb, nw=nw)
+            if existing:   # a library board is loaded -> save edits back onto the same card
+                lib.update_entry(eid, sgf, image=img, size=size, nb=nb, nw=nw)
+                cat = existing.get("category", DEFAULT_CATEGORY)
+                verb = "已更新"
+            else:          # nothing tied to this board yet -> create a new card in the target folder
+                cur = getattr(popup, "current", None)
+                cat = (category
+                       or (cur if (cur and cur != "全部") else None)
+                       or getattr(self, "library_target", None)
+                       or DEFAULT_CATEGORY)
+                name = "棋形 " + time.strftime("%m-%d %H:%M")
+                new_entry = lib.add_entry(sgf, image=img, name=name, category=cat, size=size, nb=nb, nw=nw)
+                self.current_entry_id = new_entry.get("id")
+                verb = "已保存"
         except Exception as exc:  # noqa
             self.controls.set_status(f"保存失败 / save failed: {exc}", STATUS_INFO)
             return
@@ -852,7 +922,8 @@ class KaTrainGui(Screen, KaTrainBase):
                 popup.refresh()
             except Exception:  # noqa
                 pass
-        self.controls.set_status(f"已保存当前棋盘到库 / saved current board（{cat}）", STATUS_INFO)
+        self._refresh_lesson_bar(lib.get(getattr(self, "current_entry_id", None)))
+        self.controls.set_status(f"{verb}当前棋盘到库（{cat}）", STATUS_INFO)
 
     def _native_pick_sgf(self):
         """Native file dialog to pick an SGF (own subprocess; proper OS file browser). Returns path or None."""
@@ -935,10 +1006,11 @@ class KaTrainGui(Screen, KaTrainBase):
             size = max(sx, sy)
             nb = sum(1 for s in self.game.stones if s.player == "B")
             nw = sum(1 for s in self.game.stones if s.player == "W")
-        cat = category or DEFAULT_CATEGORY
         cur = getattr(popup, "current", None)
-        if category is None and cur and cur != "全部":
-            cat = cur
+        cat = (category
+               or (cur if (cur and cur != "全部") else None)
+               or getattr(self, "library_target", None)
+               or DEFAULT_CATEGORY)
         try:
             default_library().add_entry(sgf, image=img, name=name, category=cat, size=size, nb=nb, nw=nw)
         except Exception as exc:  # noqa
@@ -1325,6 +1397,7 @@ class KaTrainApp(MDApp):
         if source == "keyboard":
             return True  # do not close on esc
         if getattr(self, "gui", None):
+            self.gui._autosave_current_entry()   # don't lose an unsaved library board on exit
             self.gui.play_mode.save_ui_state()
             self.gui._config["ui_state"]["size"] = list(Window._size)
             self.gui._config["ui_state"]["top"] = Window.top

@@ -12,6 +12,10 @@ from kivy.metrics import dp
 from kivy.properties import BooleanProperty, ListProperty, NumericProperty, ObjectProperty
 from kivy.uix.dropdown import DropDown
 from kivy.uix.widget import Widget
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.boxlayout import BoxLayout
 from kivymd.app import MDApp
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.floatlayout import MDFloatLayout
@@ -1245,7 +1249,58 @@ class AnalysisDropDown(DropDown):
         )
         library_popup.content.popup = library_popup
         library_popup.content.katrain = MDApp.get_running_app().gui
+        # reopen into the folder the user last worked in, so '存入当前棋盘' lands where they expect
+        library_popup.content.current = getattr(library_popup.content.katrain, "library_target", "") or ""
         library_popup.open()
+
+
+class LessonBar(MDBoxLayout):
+    """A thin horizontal bar above the board: one button per board in the active lesson (folder).
+
+    Driven entirely from Python (set_lesson) so there is no per-button kv to maintain. It stays
+    hidden (active=False -> height 0 in the .kv) until a folder with 2+ boards is loaded."""
+
+    active = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(orientation="horizontal", spacing=dp(4), padding=[dp(8), dp(3)], **kwargs)
+        self.katrain = None
+        self.category = None
+        self._scroll = ScrollView(do_scroll_y=False, bar_width=dp(2))
+        self._row = BoxLayout(orientation="horizontal", spacing=dp(4), size_hint_x=None)
+        self._row.bind(minimum_width=self._row.setter("width"))
+        self._scroll.add_widget(self._row)
+
+    def set_lesson(self, katrain, category, active_id=None):
+        """Show the boards of `category` as a switch strip; hide the bar if it isn't a real lesson."""
+        from katrain.core.library import default_library, leaf_name
+
+        self.katrain = katrain
+        self.category = category
+        entries = default_library().entries(category) if category else []
+        # a "lesson" is a folder holding more than one board; a lone board needs no switcher
+        if len(entries) < 2:
+            self.active = False
+            self.clear_widgets()
+            return
+        entries = sorted(entries, key=lambda e: e.get("created", ""))   # stable teaching order
+        self.active = True
+        self.clear_widgets()
+        title = Label(text=f"【{leaf_name(category)}】", font_name=Theme.DEFAULT_FONT, font_size=dp(15),
+                      color=Theme.TEXT_COLOR, size_hint_x=None, halign="left", valign="middle")
+        title.bind(texture_size=lambda w, ts: setattr(w, "width", min(ts[0] + dp(8), dp(180))))
+        title.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+        self.add_widget(title)
+        self._row.clear_widgets()
+        for i, e in enumerate(entries):
+            is_cur = (e.get("id") == active_id)
+            b = Button(text=str(i + 1), font_name=Theme.DEFAULT_FONT, font_size=dp(15),
+                       size_hint=(None, 1), width=dp(40), background_normal="", background_down="",
+                       background_color=Theme.ORANGE if is_cur else Theme.BOX_BACKGROUND_COLOR,
+                       color=Theme.TEXT_COLOR)
+            b.bind(on_release=lambda _w, eid=e.get("id"): katrain.lesson_switch(category, eid))
+            self._row.add_widget(b)
+        self.add_widget(self._scroll)
 
 
 class AnalysisControls(MDBoxLayout):

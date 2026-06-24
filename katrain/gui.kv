@@ -889,6 +889,14 @@
         padding_x: 12
         text: i18n._("棋形库")
         on_release: root.dropdown.open_board_library_popup()
+    AutoSizedRoundedRectangleButton:
+        size_hint: None, 0.55
+        pos_hint: {'center_y': 0.5}
+        font_name: Theme.DEFAULT_FONT
+        background_color: Theme.BOX_BACKGROUND_COLOR
+        padding_x: 12
+        text: i18n._("存入当前")
+        on_release: app.gui.library_save_current()
     AnchorLayout:
         MDBoxLayout:
             adaptive_width: True
@@ -1197,6 +1205,7 @@
     analysis_progress: analysis_progress
     play_mode: play_mode
     analysis_controls: analysis_controls
+    lesson_bar: lesson_bar
     nav_drawer: nav_drawer
     nav_drawer_contents: nav_drawer_contents
     NavigationLayout:
@@ -1212,6 +1221,11 @@
                             size_hint_y: None
                             height: 1 if root.zen > 0 else max(sp(Theme.CONTROLS_PANEL_MIN_HEIGHT),min(sp(Theme.CONTROLS_PANEL_MAX_HEIGHT),self.width / Theme.CONTROLS_PANEL_ASPECT_RATIO))
                             opacity: 0 if root.zen > 0 else 1
+                        LessonBar:
+                            id: lesson_bar
+                            size_hint_y: None
+                            height: 0 if (root.zen > 0 or not self.active) else dp(42)
+                            opacity: 0 if (root.zen > 0 or not self.active) else 1
                         BadukPanWidget:
                             id: board_gui
                         BadukPanControls:
