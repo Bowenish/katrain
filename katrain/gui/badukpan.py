@@ -95,9 +95,13 @@ class BadukPanWidget(Widget):
         return xd, xp, yd, yp
 
     def check_next_move_ghost(self, touch):
+        self._set_ghost_at(touch.x, touch.y)
+
+    def _set_ghost_at(self, wx, wy):
+        """Update the ghost stone for a board position in widget coords (used by drag AND plain hover)."""
         if not self.initial_gridpos_x:
             return
-        xd, xp, yd, yp = self._find_closest(touch.x, touch.y)
+        xd, xp, yd, yp = self._find_closest(wx, wy)
         prev_ghost = self.ghost_stone
         if max(yd, xd) < self.grid_size / 2 and (xp, yp) not in [m.coords for m in self.katrain.game.stones]:
             self.ghost_stone = (xp, yp)
@@ -168,6 +172,13 @@ class BadukPanWidget(Widget):
                 d_sq = (pos[0] - self.animating_pv[3][0]) ** 2 + (pos[1] - self.animating_pv[3][1])
                 if d_sq > 2 * self.stone_size**2:  # move too far from where it was activated
                     self.set_animating_pv(None, None)  # any click kills PV from label/move
+            # plain hover (no button held): preview the next move as a translucent ghost stone
+            if not self.selecting_region_of_interest and self.animating_pv is None:
+                if inside:
+                    self._set_ghost_at(*rel_pos)
+                elif self.ghost_stone is not None:
+                    self.ghost_stone = None
+                    self.redraw_hover_contents_trigger()
             self.last_mouse_pos = pos
 
     def on_touch_up(self, touch):
@@ -1076,9 +1087,14 @@ class BadukPanWidget(Widget):
             if self.selecting_region_of_interest and len(self.region_of_interest) == 4:
                 self.draw_roi_box(self.region_of_interest, width=dp(2))
             else:
-                # hover next move ghost stone
+                # hover next move ghost stone + crosshair through the hovered intersection
                 if self.ghost_stone:
-                    self.draw_stone(*self.ghost_stone, next_player, alpha=ghost_alpha)
+                    gx, gy = self.ghost_stone
+                    cx, cy = self.gridpos[gy][gx][0], self.gridpos[gy][gx][1]
+                    Color(*Theme.HOVER_CROSSHAIR_COLOR)
+                    Line(points=[self.gridpos[gy][0][0], cy, self.gridpos[gy][board_size_x - 1][0], cy], width=dp(1))
+                    Line(points=[cx, self.gridpos[0][gx][1], cx, self.gridpos[board_size_y - 1][gx][1]], width=dp(1))
+                    self.draw_stone(gx, gy, next_player, alpha=ghost_alpha)
 
                 animating_pv = self.animating_pv
                 if animating_pv:

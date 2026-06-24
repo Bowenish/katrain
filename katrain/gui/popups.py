@@ -12,6 +12,7 @@ from zipfile import ZipFile
 
 import urllib3
 from kivy.clock import Clock
+from kivy.core.window import Window
 from kivy.metrics import dp
 from kivy.properties import BooleanProperty, ListProperty, NumericProperty, ObjectProperty, StringProperty
 from kivy.uix.anchorlayout import AnchorLayout
@@ -1080,31 +1081,48 @@ class BoardLibraryPopup(BoxLayout):
         self.lib = default_library()
         self.current = ""   # current folder path; "" = root (顶层)
 
-        # top bar: [面包屑导航 ............] [↑上级] [＋新建文件夹] [导入SGF] [存入当前棋盘]
+        # hover/press feedback: one Window.mouse_pos listener drives all buttons (auto-unbinds on dismiss)
+        self._hovers = []                 # [ [btn, normal, hover, press], ... ] for the dynamic content
+        self._static_hovers = []          # the always-present top-bar buttons
+        Window.bind(mouse_pos=self._on_hover_move)
+
+        # top bar: [面包屑导航 ............] [↑上级] [＋新建文件夹] [存入当前棋盘]
+        # (截图入库 / 空白棋盘 / 导入SGF all live together on the first 'create' card)
         bar = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(46), spacing=dp(6), padding=[dp(2), 0])
         self.crumb = BoxLayout(orientation="horizontal", spacing=dp(2))
         bar.add_widget(self.crumb)
 
         def barbtn(text, cb):
             b = AutoSizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(None, 1))
-            b.background_color = Theme.BOX_BACKGROUND_COLOR
             b.background_radius = dp(8)
             b.outline_color = Theme.BUTTON_BORDER_COLOR
             b.bind(on_release=lambda *_a: cb())
+            self._fx(b, Theme.BOX_BACKGROUND_COLOR, Theme.LIGHTER_BACKGROUND_COLOR, [0.34, 0.45, 0.58, 1], blank=False)
             return b
 
         self.up_btn = barbtn("↑ 上级", self._go_up)
         bar.add_widget(self.up_btn)
         bar.add_widget(barbtn("＋ 新建文件夹", self._new_folder))
-        bar.add_widget(barbtn("导入SGF", self._import_sgf))
         bar.add_widget(barbtn("存入当前棋盘", self._save_current))
         self.add_widget(bar)
 
+        # body: left action sidebar (create actions) + right scrolling list (folders & boards)
+        body = BoxLayout(orientation="horizontal", spacing=dp(8))
+        sidebar = BoxLayout(orientation="vertical", size_hint_x=None, width=dp(150), spacing=dp(8))
+        sidebar.add_widget(self._make_new_card())   # 空白棋盘 / 截图入库 / 导入SGF
+        sidebar.add_widget(Widget())                # push the action card to the top
+        body.add_widget(sidebar)
+
         self.scroll = ScrollView()
-        self.grid = GridLayout(cols=4, spacing=dp(10), padding=dp(6), size_hint_y=None)
+        # no TOP padding: the first row (region masonry) lines up with the sidebar card's top
+        self.grid = GridLayout(cols=1, spacing=dp(6), padding=[dp(4), 0, dp(4), dp(4)], size_hint_y=None)
         self.grid.bind(minimum_height=self.grid.setter("height"))
         self.scroll.add_widget(self.grid)
-        self.add_widget(self.scroll)
+        body.add_widget(self.scroll)
+        self.add_widget(body)
+
+        # bar + sidebar buttons persist across refreshes; crumb + grid buttons are rebuilt each time
+        self._static_hovers = list(self._hovers)
 
         Clock.schedule_once(lambda _dt: self.refresh(), 0)
 
@@ -1126,6 +1144,47 @@ class BoardLibraryPopup(BoxLayout):
         kw.setdefault("color", Theme.TEXT_COLOR)
         return Label(text=text, **kw)
 
+    # ----------------------------------------------------- hover / press fx --
+    def _fx(self, btn, normal, hover, press, blank=True):
+        """Give a button hover-highlight + press feedback by swapping its background_color.
+
+        `blank=True` blanks a plain kivy Button's default texture so the colour shows; the custom
+        RectangleButtons (bar) draw their own background, so pass blank=False for them."""
+        if blank and hasattr(btn, "background_normal"):
+            btn.background_normal = ""
+            btn.background_down = ""
+        btn._fx = [list(normal), list(hover), list(press)]
+        btn._hv = False
+        btn.background_color = list(normal)
+        self._hovers.append(btn)
+        btn.bind(state=lambda b, *_a: self._apply_fx(b))
+        return btn
+
+    @staticmethod
+    def _apply_fx(btn):
+        normal, hover, press = btn._fx
+        btn.background_color = press if btn.state == "down" else (hover if btn._hv else normal)
+
+    def _on_hover_move(self, _win, pos):
+        if not self.get_root_window():            # popup dismissed -> stop listening (auto-cleanup)
+            Window.unbind(mouse_pos=self._on_hover_move)
+            return
+        for btn in self._hovers:
+            try:
+                inside = btn.get_root_window() is not None and btn.collide_point(*btn.to_widget(*pos))
+            except Exception:  # noqa
+                inside = False
+            if inside != btn._hv:
+                btn._hv = inside
+                self._apply_fx(btn)
+
+    def on_touch_down(self, touch):
+        # mouse side button (X1 'back') -> up one level, like a file browser
+        if "button" in touch.profile and touch.button == "mouse4" and self.collide_point(*touch.pos):
+            self._go_up()
+            return True
+        return super().on_touch_down(touch)
+
     # --------------------------------------------------------- navigation --
     def _enter(self, path):
         self.current = norm_path(path)
@@ -1146,10 +1205,10 @@ class BoardLibraryPopup(BoxLayout):
             if i > 0:
                 self.crumb.add_widget(self._lbl("›", size_hint_x=None, width=dp(14)))
             b = Button(text=label, font_name=Theme.DEFAULT_FONT, size_hint_x=None, width=dp(40),
-                       background_normal="", background_down="", background_color=[0, 0, 0, 0],
                        color=Theme.TEXT_COLOR)
             b.bind(texture_size=lambda w, ts: setattr(w, "width", ts[0] + dp(10)))
             b.bind(on_release=lambda _w, pth=path: self._enter(pth))
+            self._fx(b, [0, 0, 0, 0], [1, 1, 1, 0.12], [1, 1, 1, 0.20])
             self.crumb.add_widget(b)
         self.crumb.add_widget(Widget())   # spacer pushes the bar buttons to the right
 
@@ -1159,6 +1218,7 @@ class BoardLibraryPopup(BoxLayout):
             return
         self._refreshing = True
         try:
+            self._hovers = list(self._static_hovers)   # drop hover-refs to the about-to-be-cleared widgets
             # if the current folder was deleted out from under us, climb to the nearest survivor
             folders = self.lib._all_folders()
             while self.current and self.current not in folders:
@@ -1166,11 +1226,15 @@ class BoardLibraryPopup(BoxLayout):
             self._rebuild_crumb()
             self.up_btn.disabled = (self.current == "")
             self.grid.clear_widgets()
-            self.grid.add_widget(self._make_new_card())     # always first: capture / blank board
-            for f in self.lib.child_folders(self.current):  # then sub-folders
-                self.grid.add_widget(self._make_folder_card(f))
-            for e in self.lib.entries(self.current):         # then boards in this folder
-                self.grid.add_widget(self._make_card(e))
+            children = self.lib.child_folders(self.current)
+            if children:   # region blocks in a tight 2-column masonry (no ragged row gaps)
+                self.grid.add_widget(self._masonry(children))
+            entries = self.lib.entries(self.current)          # boards directly in this folder -> list rows
+            for e in entries:
+                self.grid.add_widget(self._entry_row(e))
+            if not children and not entries:
+                self.grid.add_widget(self._lbl("（这个文件夹还是空的，用左侧按钮新建棋盘）",
+                                               size_hint_y=None, height=dp(40)))
         finally:
             self._refreshing = False
 
@@ -1181,54 +1245,145 @@ class BoardLibraryPopup(BoxLayout):
         return card
 
     def _make_new_card(self):
-        """The 'create' tile: top half = capture a screenshot into the library, bottom half = new blank board."""
+        """The 'create' tile: three stacked actions — screenshot capture / blank board / import SGF."""
         card = self._card_base()
         card.background_color = Theme.LIGHTER_BACKGROUND_COLOR
         card.outline_color = Theme.BUTTON_BORDER_COLOR
         card.outline_width = dp(1.2)
 
-        def half(text, cb):
-            b = Button(text=text, font_name=Theme.DEFAULT_FONT, font_size=dp(17), size_hint_y=0.5,
-                       background_normal="", background_down="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
+        def section(text, cb):
+            b = Button(text=text, font_name=Theme.DEFAULT_FONT, font_size=dp(16), size_hint_y=1,
+                       color=Theme.TEXT_COLOR)
             b.bind(on_release=lambda *_a: cb())
+            self._fx(b, [0, 0, 0, 0], [1, 1, 1, 0.10], [1, 1, 1, 0.18])
             return b
 
-        card.add_widget(half("▣  截图入库", self._capture))
-        divider = BackgroundLabel(text="", size_hint_y=None, height=dp(1))
-        divider.background_color = Theme.BUTTON_BORDER_COLOR
-        card.add_widget(divider)
-        card.add_widget(half("＋  空白棋盘", self._new_blank))
+        def divider():
+            d = BackgroundLabel(text="", size_hint_y=None, height=dp(1))
+            d.background_color = Theme.BUTTON_BORDER_COLOR
+            return d
+
+        card.add_widget(section("＋  空白棋盘", self._new_blank))
+        card.add_widget(divider())
+        card.add_widget(section("▣  截图入库", self._capture))
+        card.add_widget(divider())
+        card.add_widget(section("↓  导入SGF", self._import_sgf))
         return card
 
-    def _make_card(self, e):
-        card = self._card_base()
+    def _row_base(self):
+        row = BGBoxLayout(orientation="horizontal", size_hint_y=None, height=dp(56),
+                          spacing=dp(8), padding=[dp(8), dp(4)])
+        row.background_color = Theme.BOX_BACKGROUND_COLOR
+        row.background_radius = dp(8)
+        return row
+
+    def _row_menu_btn(self, cb):
+        b = Button(text="⋯", font_name=Theme.DEFAULT_FONT, font_size=dp(22), size_hint_x=None, width=dp(40),
+                   color=Theme.TEXT_COLOR)
+        b.bind(on_release=lambda *_a: cb())
+        self._fx(b, [0, 0, 0, 0], [1, 1, 1, 0.14], [1, 1, 1, 0.22])
+        return b
+
+    def _entry_row(self, e):
+        """One board as a list row: thumbnail + name + meta ........ ⋯ menu."""
+        row = self._row_base()
         thumb = self.lib.thumb_path(e)
         if os.path.exists(thumb):
-            btn = Button(background_normal=thumb, background_down=thumb, border=(0, 0, 0, 0), size_hint_y=0.78)
+            icon = Button(background_normal=thumb, background_down=thumb, border=(0, 0, 0, 0),
+                          size_hint_x=None, width=dp(48))
         else:
-            btn = Button(text="点击载入", font_name=Theme.DEFAULT_FONT, size_hint_y=0.78,
-                         background_normal="", background_color=Theme.LIGHTER_BACKGROUND_COLOR, color=Theme.TEXT_COLOR)
-        btn.bind(on_release=lambda *_a: self.load_entry(e))
-        card.add_widget(btn)
-        footer = BoxLayout(orientation="horizontal", size_hint_y=0.22, spacing=dp(2))
-        # text column: name on one (clipped) line, board meta on a second line — both bound to their
-        # own width via text_size so long names ellipsize INSIDE the card instead of bleeding over it.
-        txt = BoxLayout(orientation="vertical", spacing=0)
-        name_lbl = self._lbl(e.get("name", "棋形"), font_size=dp(13), halign="left", valign="bottom",
-                             shorten=True, shorten_from="right")
-        name_lbl.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
-        meta_lbl = self._lbl(f"SZ{e.get('size', 19)}  ●{e.get('nb', 0)} ○{e.get('nw', 0)}",
-                             font_size=dp(11), halign="left", valign="top", color=Theme.BUTTON_INACTIVE_COLOR)
-        meta_lbl.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
-        txt.add_widget(name_lbl)
-        txt.add_widget(meta_lbl)
-        footer.add_widget(txt)
-        menu = Button(text="⋯", font_name=Theme.DEFAULT_FONT, font_size=dp(20), size_hint_x=None, width=dp(30),
-                      background_normal="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
-        menu.bind(on_release=lambda *_a: self._card_menu(e))
-        footer.add_widget(menu)
-        card.add_widget(footer)
-        return card
+            icon = Button(text="棋", font_name=Theme.DEFAULT_FONT, size_hint_x=None, width=dp(48),
+                          background_normal="", background_color=Theme.LIGHTER_BACKGROUND_COLOR, color=Theme.TEXT_COLOR)
+        icon.bind(on_release=lambda *_a: self.load_entry(e))
+        row.add_widget(icon)
+        label = Button(
+            text=f"{e.get('name', '棋形')}      [color=999999]SZ{e.get('size', 19)}  ●{e.get('nb', 0)} ○{e.get('nw', 0)}[/color]",
+            markup=True, font_name=Theme.DEFAULT_FONT, font_size=dp(16), halign="left", valign="middle",
+            shorten=True, shorten_from="right", color=Theme.TEXT_COLOR)
+        label.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+        label.bind(on_release=lambda *_a: self.load_entry(e))
+        self._fx(label, [0, 0, 0, 0], [1, 1, 1, 0.08], [1, 1, 1, 0.16])
+        row.add_widget(label)
+        row.add_widget(self._row_menu_btn(lambda: self._card_menu(e)))
+        return row
+
+    def _est_block_height(self, path):
+        """Rough rendered height of a region block, for balancing the masonry columns."""
+        subs = self.lib.child_folders(path)
+        rows = len(subs) if subs else 1
+        return dp(16 + 34 + 1 + 6) + rows * dp(33)   # padding + header + divider + spacing + item rows
+
+    def _masonry(self, children):
+        """Pack region blocks into 2 tight columns (Pinterest-style): each block goes into the
+        currently-shorter column, so there are no ragged row gaps from uneven block heights."""
+        container = BoxLayout(orientation="horizontal", size_hint_y=None, spacing=dp(8))
+        # pos_hint top:1 pins each column's TOP to the container top, so a shorter column lines up
+        # at the top instead of being bottom-aligned (the default for size_hint_y=None in a row).
+        cols = [BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(8), pos_hint={"top": 1}),
+                BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(8), pos_hint={"top": 1})]
+        for c in cols:
+            c.bind(minimum_height=c.setter("height"))
+            container.add_widget(c)
+        est = [0.0, 0.0]
+        for f in children:
+            i = 0 if est[0] <= est[1] else 1
+            cols[i].add_widget(self._region_block(f))
+            est[i] += self._est_block_height(f) + dp(8)
+
+        def _sync(*_a):
+            container.height = max(cols[0].height, cols[1].height)
+        cols[0].bind(height=_sync)
+        cols[1].bind(height=_sync)
+        _sync()
+        return container
+
+    def _region_block(self, path):
+        """A category shown as a block: header (the region) + its sub-folders listed inside, clickable.
+
+        A region with no sub-folders (only boards) shows a board count; click the header to open it."""
+        block = BGBoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(3), padding=dp(8))
+        block.background_color = Theme.LIGHTER_BACKGROUND_COLOR
+        block.background_radius = dp(8)
+        block.outline_color = Theme.BUTTON_BORDER_COLOR
+        block.outline_width = dp(1.2)
+        block.bind(minimum_height=block.setter("height"))
+
+        # header: region name (click -> open it) + ⋯ folder menu (rename / move / delete)
+        header = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(34), spacing=dp(2))
+        title = Button(text=leaf_name(path), font_name=Theme.DEFAULT_FONT, font_size=dp(17),
+                       halign="left", valign="middle", shorten=True, shorten_from="right", color=Theme.TEXT_COLOR)
+        title.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+        title.bind(on_release=lambda *_a: self._enter(path))
+        self._fx(title, [0, 0, 0, 0], [1, 1, 1, 0.10], [1, 1, 1, 0.18])
+        header.add_widget(title)
+        header.add_widget(self._row_menu_btn(lambda: self._folder_menu(path)))
+        block.add_widget(header)
+
+        div = BackgroundLabel(text="", size_hint_y=None, height=dp(1))
+        div.background_color = Theme.BUTTON_BORDER_COLOR
+        block.add_widget(div)
+
+        subs = self.lib.child_folders(path)
+        if subs:
+            for sf in subs:
+                n, ns = len(self.lib.entries(sf)), len(self.lib.child_folders(sf))
+                meta = f"{n}盘" + (f" · {ns}夹" if ns else "")
+                r = Button(text=f"›  {leaf_name(sf)}      [color=999999]{meta}[/color]",
+                           markup=True, font_name=Theme.DEFAULT_FONT, font_size=dp(15),
+                           halign="left", valign="middle", shorten=True, shorten_from="right",
+                           size_hint_y=None, height=dp(30), color=Theme.TEXT_COLOR)
+                r.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+                r.bind(on_release=lambda _w, p=sf: self._enter(p))
+                self._fx(r, [0, 0, 0, 0], [1, 1, 1, 0.10], [1, 1, 1, 0.18])
+                block.add_widget(r)
+        else:
+            n = len(self.lib.entries(path))
+            lbl = self._lbl(f"（{n} 个棋盘，点标题进入）" if n else "（空）",
+                            size_hint_y=None, height=dp(30), halign="left", valign="middle",
+                            color=Theme.BUTTON_INACTIVE_COLOR, font_size=dp(13))
+            lbl.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
+            block.add_widget(lbl)
+        return block
 
     def _card_menu(self, e):
         """The per-card '⋯' menu: rename / move / delete (keeps cards uncluttered)."""
@@ -1249,33 +1404,10 @@ class BoardLibraryPopup(BoxLayout):
         box.add_widget(item("删除", self._delete_entry, danger=True))
         pop.open()
 
-    def _make_folder_card(self, path):
-        """A folder tile: click to open; '⋯' to rename / delete."""
-        card = self._card_base()
-        card.background_color = Theme.LIGHTER_BACKGROUND_COLOR
-        card.outline_color = Theme.BUTTON_BORDER_COLOR
-        card.outline_width = dp(1.2)
-        btn = Button(text=f"▣\n{leaf_name(path)}", font_name=Theme.DEFAULT_FONT, font_size=dp(20),
-                     halign="center", valign="middle", size_hint_y=0.78,
-                     background_normal="", background_down="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
-        btn.bind(size=lambda w, *_a: setattr(w, "text_size", (w.width, w.height)))
-        btn.bind(on_release=lambda *_a: self._enter(path))
-        card.add_widget(btn)
-        footer = BoxLayout(orientation="horizontal", size_hint_y=0.22, spacing=dp(2))
-        n_sub = len(self.lib.child_folders(path))
-        n_ent = len(self.lib.entries(path))
-        footer.add_widget(self._lbl(f"文件夹 · {n_sub}夹 {n_ent}盘", font_size=dp(13)))
-        menu = Button(text="⋯", font_name=Theme.DEFAULT_FONT, font_size=dp(20), size_hint_x=None, width=dp(34),
-                      background_normal="", background_color=[0, 0, 0, 0], color=Theme.TEXT_COLOR)
-        menu.bind(on_release=lambda *_a: self._folder_menu(path))
-        footer.add_widget(menu)
-        card.add_widget(footer)
-        return card
-
     def _folder_menu(self, path):
         box = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(8))
         pop = Popup(title=leaf_name(path), title_font=Theme.DEFAULT_FONT,
-                    content=box, size_hint=(None, None), size=(dp(260), dp(200)))
+                    content=box, size_hint=(None, None), size=(dp(260), dp(250)))
 
         def item(text, fn, danger=False):
             b = SizedRectangleButton(text=text, font_name=Theme.DEFAULT_FONT, size_hint=(1, None), height=dp(46))
@@ -1286,8 +1418,29 @@ class BoardLibraryPopup(BoxLayout):
             return b
 
         box.add_widget(item("改名", lambda: self._rename_folder(path)))
+        box.add_widget(item("移动到…", lambda: self._move_folder(path)))
         box.add_widget(item("删除", lambda: self._del_folder_confirm(path), danger=True))
         pop.open()
+
+    def _move_folder(self, path):
+        """Move this whole folder (with its sub-folders & boards) under another folder.
+
+        Ask for the DESTINATION PARENT path ('' = root); the folder keeps its own name. e.g.
+        moving 'Go-Online' into '网络对弈' makes it '网络对弈/Go-Online'."""
+        def on_ok(dest):
+            dest = norm_path(dest)                       # target parent; '' = root
+            if dest == path or dest.startswith(path + SEP):
+                self.katrain and self.katrain.controls.set_status("不能移动到自己或子文件夹里", STATUS_INFO)
+                return                                   # would create a cycle
+            new_full = (dest + SEP + leaf_name(path)) if dest else leaf_name(path)
+            if new_full == path:
+                return
+            self.lib.rename_category(path, new_full)     # re-prefixes all sub-folders & boards
+            if self.current == path or self.current.startswith(path + SEP):
+                self.current = new_full + self.current[len(path):]
+            self.refresh()
+        self._ask_text("移动到哪个文件夹（输入目标文件夹名，留空=根；可用 / 分层，目标不存在会自动新建）",
+                       parent_path(path), on_ok)
 
     # ------------------------------------------------------------ actions --
     def load_entry(self, e):

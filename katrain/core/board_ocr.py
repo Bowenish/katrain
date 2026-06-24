@@ -152,7 +152,8 @@ def _snap_size(n_lines: int) -> Tuple[int, bool]:
     return n_lines, False
 
 
-def _regularize(pos: List[int], length: int, gray: np.ndarray, axis: str) -> Tuple[List[int], bool]:
+def _regularize(pos: List[int], length: int, gray: np.ndarray, axis: str,
+                force_spacing: float = None) -> Tuple[List[int], bool]:
     """
     Turn raw detected line positions into a clean, evenly-spaced grid, dropping
     outliers (coordinate labels A-T/1-19, a watermark, a play marker). Works for a
@@ -165,12 +166,16 @@ def _regularize(pos: List[int], length: int, gray: np.ndarray, axis: str) -> Tup
     watermark is dark only over a short stretch. This holds even in stone-dense areas
     (stones are dark too), unlike a projection-magnitude score which collapses there.
 
+    `force_spacing` overrides the auto-derived cell size. It is used to reconcile the two
+    axes (Go cells are square): when one axis's raw lines are corrupted by long rows of
+    stones faking extra lines, we re-comb it with the *other* (clean) axis's spacing.
+
     Returns (grid_positions, is_full_size) - is_full_size means count in {9,13,19}.
     """
     pos = sorted(int(p) for p in pos)
     if len(pos) < 4:
         return pos, False
-    s = float(np.median(np.diff(pos)))
+    s = float(force_spacing) if force_spacing else float(np.median(np.diff(pos)))
     if s < 4:
         return pos, False
     si = max(1, int(round(s)))
@@ -312,8 +317,26 @@ def recognize(img: Image.Image) -> RecognitionResult:
     gray = np.asarray(img.convert("L"))
 
     col_dark, row_dark = _darkness_projection(gray)
-    xs, full_x = _regularize(_line_positions(col_dark), gray.shape[1], gray, "col")
-    ys, full_y = _regularize(_line_positions(row_dark), gray.shape[0], gray, "row")
+    raw_x, raw_y = _line_positions(col_dark), _line_positions(row_dark)
+    xs, full_x = _regularize(raw_x, gray.shape[1], gray, "col")
+    ys, full_y = _regularize(raw_y, gray.shape[0], gray, "row")
+
+    # Go cells are square, so the two axes must share one pixel spacing. Long rows/columns of
+    # stones can fake a dense ladder of false lines on one axis (median spacing collapses).
+    # When one axis is clean and even but the other is not, re-comb the bad axis at the good
+    # axis's spacing so stone bands stop masquerading as grid lines.
+    def _even_spacing(p):
+        if len(p) < 4:
+            return None
+        d = np.diff(p)
+        s = float(np.median(d))
+        return s if s >= 4 and float(np.std(d)) <= 0.25 * s else None
+
+    sx, sy = _even_spacing(xs), _even_spacing(ys)
+    if sx and not sy:
+        ys, full_y = _regularize(raw_y, gray.shape[0], gray, "row", force_spacing=sx)
+    elif sy and not sx:
+        xs, full_x = _regularize(raw_x, gray.shape[1], gray, "col", force_spacing=sy)
 
     n_cols, n_rows = len(xs), len(ys)
     # A clean full board has both axes the same common size (9/13/19), edges included.

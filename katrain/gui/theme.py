@@ -121,6 +121,7 @@ class Theme:
     STONE_SIZE = 0.505  # texture edge is transparent
 
     GHOST_ALPHA = 0.6
+    HOVER_CROSSHAIR_COLOR = [0.20, 0.55, 1.0, 0.45]   # faint crosshair through the hovered intersection
     POLICY_ALPHA = 0.5
     OWNERSHIP_COLORS = {"B": [0.0, 0.0, 0.10, 0.75], "W": [0.92, 0.92, 1.0, 0.800]}
     OWNERSHIP_GAMMA = 1.33
