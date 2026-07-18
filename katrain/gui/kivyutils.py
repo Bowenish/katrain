@@ -683,7 +683,7 @@ class ClickableLabel(LeftButtonBehavior, Label):
 
 
 class ClickableCircle(LeftButtonBehavior, CircleWithText):
-    pass
+    active = BooleanProperty(False)  # draw a highlight ring when this color mode is selected
 
 
 class ScrollableLabel(ScrollView, BackgroundMixin):

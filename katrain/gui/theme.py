@@ -170,6 +170,7 @@ class Theme:
     # keyboard shortcuts
     KEY_AI_MOVE = ["enter", "numpadenter"]
     KEY_PASS = "p"
+    KEY_SWITCH_PLAYER = "u"  # 切换下一手颜色（不落子）
 
     KEY_DEEPERANALYSIS_POPUP = "f2"
     KEY_REPORT_POPUP = "f3"

@@ -81,6 +81,7 @@ from kivy.uix.widget import Widget
 from kivy.resources import resource_find
 from kivy.properties import NumericProperty, ObjectProperty, StringProperty
 from kivy.clock import Clock
+from kivy.animation import Animation
 from kivy.metrics import dp
 from katrain.core.ai import generate_ai_move
 
@@ -150,6 +151,7 @@ class KaTrainGui(Screen, KaTrainBase):
         self.pondering = False
         self.peek_hints = False   # hold Shift -> temporarily show best-move hints (最佳选点)
         self.peek_policy = False  # hold Ctrl -> temporarily show policy (自定义下最佳选点)
+        self.fixed_play_color = None  # None=交替手; "B"/"W"=固定只落黑/白（讲课摆子用）
 
         self.animate_contributing = False
         self.message_queue = Queue()
@@ -275,7 +277,8 @@ class KaTrainGui(Screen, KaTrainBase):
         # Handle prisoners and next player display
         prisoners = self.game.prisoner_count
         top, bot = [w.__self__ for w in self.board_controls.circles]  # no weakref
-        if self.next_player_info.player == "W":
+        next_to_move = self.next_player_info.player
+        if next_to_move == "W":
             top, bot = bot, top
             self.controls.players["W"].active = True
             self.controls.players["B"].active = False
@@ -285,6 +288,27 @@ class KaTrainGui(Screen, KaTrainBase):
         self.board_controls.mid_circles_container.clear_widgets()
         self.board_controls.mid_circles_container.add_widget(bot)
         self.board_controls.mid_circles_container.add_widget(top)
+        # highlight the locked-color circle (黑/白 固定落子) and fade the inactive ones (animated)
+        fpc = self.fixed_play_color
+        dim = 0.35
+        self.board_controls.black_force.active = fpc == "B"
+        self.board_controls.white_force.active = fpc == "W"
+
+        def fade(widget, target):  # animate to a new target only when it changes (avoids restart jitter)
+            if getattr(widget, "_fade_target", None) != target:
+                widget._fade_target = target
+                Animation.cancel_all(widget, "opacity")
+                Animation(opacity=target, duration=0.2, t="out_quad").start(widget)
+
+        # force circles: full only when locked to that color, dim otherwise (incl. alternate mode)
+        fade(self.board_controls.black_force, 1 if fpc == "B" else dim)
+        fade(self.board_controls.white_force, 1 if fpc == "W" else dim)
+        # overlap indicator: full in alternate mode, dim when a color is locked
+        fade(self.board_controls.mid_circles_container, 1 if fpc is None else dim)
+        # within the overlap, fade the side that is NOT to move (该下黑时白色半透明, 反之亦然)
+        black_circle, white_circle = self.board_controls.circles
+        fade(black_circle, 1 if next_to_move == "B" else dim)
+        fade(white_circle, 1 if next_to_move == "W" else dim)
 
         self.controls.players["W"].captures = prisoners["W"]
         self.controls.players["B"].captures = prisoners["B"]
@@ -415,6 +439,7 @@ class KaTrainGui(Screen, KaTrainBase):
 
     def _do_new_game(self, move_tree=None, analyze_fast=False, sgf_filename=None):
         self.pondering = False
+        self.fixed_play_color = None  # 新对局恢复交替手
         self._autosave_current_entry()   # save edits to the board we're leaving before detaching
         self.current_entry_id = None     # a fresh game detaches from any loaded card (re-set by library_load)
         mode = self.play_analyze_mode
@@ -503,8 +528,14 @@ class KaTrainGui(Screen, KaTrainBase):
     def _do_play(self, coords):
         self.board_gui.animating_pv = None
         try:
+            play_color = self.fixed_play_color or self.next_player_info.player
             old_prisoner_count = self.game.prisoner_count["W"] + self.game.prisoner_count["B"]
-            self.game.play(Move(coords, player=self.next_player_info.player))
+            # when locked, skip play()'s auto-analysis (it would query the wrong color), pin the
+            # color on the new node, then analyze once for the locked side.
+            self.game.play(Move(coords, player=play_color), analyze=not self.fixed_play_color)
+            if self.fixed_play_color:
+                self.game.current_node.set_property("PL", self.fixed_play_color)
+                self.game.reset_current_analysis()
             if old_prisoner_count < self.game.prisoner_count["W"] + self.game.prisoner_count["B"]:
                 play_sound(Theme.CAPTURING_SOUND)
             elif not self.game.current_node.is_pass:
@@ -512,6 +543,32 @@ class KaTrainGui(Screen, KaTrainBase):
 
         except IllegalMoveException as e:
             self.controls.set_status(f"Illegal Move: {str(e)}", STATUS_ERROR)
+
+    def _do_fix_color(self, color):
+        # Lock placement to one color: every stone placed is `color`, no alternation.
+        # Used for teaching when the teacher wants to place several same-color stones.
+        cn = self.game.current_node
+        self.fixed_play_color = color
+        cn.set_property("PL", color)
+        self.game.reset_current_analysis()  # re-analyze for the locked side to move
+        # GUI refresh (turn indicator + opacity) is handled by _do_update_state after this action
+        self.controls.set_status(f"已锁定只落{'黑' if color == 'B' else '白'}子（点中间叠加圆点恢复交替）", STATUS_INFO)
+
+    def _do_switch_player(self):
+        # Click on the overlapping B/W turn indicator.
+        #   - if a color is locked -> restore normal alternating play
+        #   - otherwise -> swap whose turn it is (without playing a move)
+        cn = self.game.current_node
+        if self.fixed_play_color is not None:
+            self.fixed_play_color = None
+            cn.clear_property("PL")  # revert to natural alternation from the last move
+            self.game.reset_current_analysis()
+            self.controls.set_status("已恢复交替手", STATUS_INFO)
+        else:
+            new_player = "W" if cn.next_player == "B" else "B"
+            cn.set_property("PL", new_player)
+            self.game.reset_current_analysis()  # re-analyze for the new side to move
+            self.controls.set_status(f"已交换先后手，下一手：{'黑' if new_player == 'B' else '白'}", STATUS_INFO)
 
     def _do_analyze_extra(self, mode, **kwargs):
         self.game.analyze_extra(mode, **kwargs)
@@ -1095,6 +1152,7 @@ class KaTrainGui(Screen, KaTrainBase):
                 (Theme.KEY_RESET_ANALYSIS, ("reset-analysis",)),
                 (Theme.KEY_INSERT_MODE, ("insert-mode",)),
                 (Theme.KEY_PASS, ("play", None)),
+                (Theme.KEY_SWITCH_PLAYER, ("switch-player",)),
                 (Theme.KEY_SELFPLAY_TO_END, ("selfplay-setup", "end", None)),
                 (Theme.KEY_NAV_PREV_BRANCH, ("undo", "branch")),
                 (Theme.KEY_NAV_BRANCH_DOWN, ("switch-branch", 1)),

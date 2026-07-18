@@ -358,6 +358,8 @@ class SGFNode:
     @property
     def next_player(self):
         """Returns player to move"""
+        if "PL" in self.properties:  # explicit player-to-move (e.g. teacher switched sides on this node)
+            return "B" if self.get_property("PL").upper().strip() == "B" else "W"
         if self.is_root:
             return self.initial_player
         elif "B" in self.properties:

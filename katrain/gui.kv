@@ -201,6 +201,14 @@
         size: image.size
         font_size: root.min_size * 1.2 / (1 + 1 * len(self.text))
 
+<ClickableCircle>:
+    canvas.after:
+        Color:
+            rgba: (1, 0.65, 0.1, 1) if self.active else (0, 0, 0, 0)
+        Line:
+            width: dp(2)
+            circle: self.center_x, self.center_y, root.min_size / 2 + dp(2)
+
 # UI components
 
 <BadukPanWidget>:
@@ -217,6 +225,8 @@
     katrain: app.gui
     circles: [black_circle,white_circle]
     mid_circles_container: mid_circles_container
+    black_force: black_force
+    white_force: white_force
     pass_btn: pass_btn
     adaptive_height: True
     AutoSizedRoundedRectangleButton:
@@ -244,21 +254,40 @@
         NavIconButton:
             icon: 'Previous.png'
             on_press: root.katrain('undo')
-        MDFloatLayout:
-            size_hint: 0.05, 1
-            id: mid_circles_container
-            CircleWithText:
-                size_hint: 5/8, 1
-                pos_hint: {'center_x': 0.5-3/16}
-                id: black_circle
+        BoxLayout:
+            size_hint: 0.16, 1
+            orientation: 'horizontal'
+            ClickableCircle:
+                size_hint: 1, 0.8
+                pos_hint: {'center_y': 0.5}
+                id: black_force
                 player: 'B'
                 text: ''
-            CircleWithText:
-                size_hint: 5/8, 1
-                pos_hint: {'center_x': 0.5+3/16}
-                id: white_circle
+                on_left_release: root.katrain('fix-color','B')
+            MDFloatLayout:
+                size_hint: 1, 1
+                id: mid_circles_container
+                ClickableCircle:
+                    size_hint: 5/8, 1
+                    pos_hint: {'center_x': 0.5-3/16}
+                    id: black_circle
+                    player: 'B'
+                    text: ''
+                    on_left_release: root.katrain('switch-player')
+                ClickableCircle:
+                    size_hint: 5/8, 1
+                    pos_hint: {'center_x': 0.5+3/16}
+                    id: white_circle
+                    player: 'W'
+                    text: ''
+                    on_left_release: root.katrain('switch-player')
+            ClickableCircle:
+                size_hint: 1, 0.8
+                pos_hint: {'center_y': 0.5}
+                id: white_force
                 player: 'W'
                 text: ''
+                on_left_release: root.katrain('fix-color','W')
         NavIconButton:
             icon: 'Next.png'
             on_press: root.katrain('redo')
