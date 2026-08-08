@@ -1,0 +1,236 @@
+(;GM[1]FF[4]
+SZ[19]
+GN[新数学·韩经棋神战2/3局 申真谞VS KataGoAI<李康＆夏夏解说>]
+DT[2026-07-19]
+PB[申真谞]
+PW[KataGoAI]
+BR[P9段]
+WR[9段]
+KM[50]HA[2]RU[Japanese]AP[GNU Go:3.8]RE[B+4.50]TM[18000]TC[1]TT[30]AP[foxwq]RL[0]
+;AB[pd][dp];W[dd];B[pp];W[qq];B[pq];W[qp];B[qn];W[rn];B[rm];W[qo];B[pn];W[po];B[oo];W[op];B[or];W[np];B[no];W[mo];B[mn];W[mq];B[qr];W[ro];B[ql];W[rr];B[rs];W[rq];B[lo];W[mp];B[mr];W[lr];B[nr];W[kq];B[sp];W[sr];B[sn];W[so];B[sm];W[ms];B[ns];W[ls];B[qs];W[pr];B[oq];W[ps];B[os];W[ln];B[mm];W[lm];B[ml];W[ko];B[rp];W[ps];B[pr];W[nq];B[qf];W[fc];B[ll];W[ng];B[md];W[pg];B[pf];W[fq];B[cn];W[lh];B[cf];W[ch];B[jd];W[ce];B[ck];W[ok];B[pl];W[df];B[eq];W[fp];B[fr];W[gr];B[er];W[ob];B[pb];W[kc];B[kd];W[lc];B[ld];W[ib];B[mc]C[大家好 我是今天的解说 李康
+今天周日 大家可以悠闲地泡一杯茶 一起来看人机大战];W[of];B[oh];W[og];B[oc];W[qg];B[qj];W[hq];B[ic];W[hc];B[jb];W[rf];B[re];W[hb]C[ 小申都是走最稳的招 不给白棋借用
+我觉得这盘棋可能是官子决胜的局面
+对于狗来说 想办法将局面搅乱
+右下角双活 不算目 白棋全盘45目强
+黑棋大约是领先10目左右 并且比较厚
+小申还手握先手权  我们拭目以待 小申的优势能保持多久
+我们单纯以人类的眼光点目哈 不是目差
+变化图 1比较好想到 人类喜欢的顺势攻击
+变化图2 狗在里面带着目数做活]
+(;B[nh]C[贴 这种攻击走的就比较扎实]
+(;W[mh]C[小申如果跟人下是不是就秒断了];B[pi]C[正如前面的参考图 小申先稳住 顺势一团 把目数拿到];W[rh];B[sf];W[qi];B[pj];W[jg]C[贯彻意图 团住上方 吃掉白棋两子 非常大的一步棋 很实惠
+这个局面确实一眼看不到特别好的点
+总之 黑棋想尽一切办法 把棋盘缩小]
+(;B[bi]C[飞也是非常稳的];W[sg];B[rg]C[狗开劫了
+要靠捣乱了吧];W[do];B[co]C[那这样katago放弃打入左边黑空了];W[rf]C[提黑的肯定粘上了
+无劫可找
+小申时间3:50]
+(;B[se]C[这个只有粘
+小申比较谨慎 担心角上味道有点坏];W[qc]C[我们刚才说的 katago就来了]
+(;B[qd]
+(;W[dk]C[狗脱先了
+我觉得小申会退
+既然守了就守到家算了
+扳起反扳 白棋先手提一个
+退肯定是被便宜 但是前面一直贯彻的战略意图 那就往前往后退都可以]
+(;B[dl];W[cl]C[小申长考后扳了
+狗没有扳 断下的好快
+这没啥好想的了 要是我就认怂了
+跟人下这个地方也反击不动  只能打吃接上
+我们看小申会不会气合长起来
+看打要目数 还是长亏目数但是加强中央
+小申这盘的策略跟上一盘完全不一样了
+这盘一开始我的判断就是小申保持10目左右的优势进入官子 ]
+(;B[el];W[cj]C[小申选择了我们说的亏点目 但是要把中央的厚薄争回来];B[bk];W[bj];B[dj]C[我们前面摆过这个图 黑棋提一子 白棋一路扳粘];W[ci];B[ek];W[pc]C[我们看狗在这断了
+黑棋不能吃在2路了 得吃角里
+刚才我疏忽了 狗一断发现了 相信小申一定是看到了
+变化图3走到这双方进入收官阶段 ]
+(;B[rc]C[打这也没有问题];W[qb]C[这小申得懵了吧 这是要干嘛呀
+目前看可能打在二二是更稳的棋
+这样的话白棋可能局部好一点点 ]
+(;B[nb];W[pa];B[rb]C[目前狗没有什么施展妙手的空间];W[ak]C[主要开始小申不跟它战斗 我们俗称铺地板 比官子比内力的棋
+没有战斗所以妙手几率就小 少很多
+比如这个扳粘 我们大家也都能下出来
+我们拭目以待 小申能否把这个优势保持到终局];B[al]C[打吃 看是粘还是顶
+我觉得粘上算了~];W[aj];B[cm]C[还是选择顶吃
+目数好一点];W[ep]C[马上进入收官阶段]
+(;B[dq];W[od];B[nc]C[打吃了挖粘 先定型了];W[pe];B[rg]
+(;W[jc];B[id];W[lb];B[mb];W[ja]C[点目黑棋领先3-5目 比较厚实 单纯从目差角度来讲差距很小了]
+(;B[lf]C[这个跳很舒服的先手];W[lg];B[mf];W[mg]C[应该说在前150手 小申胜率没有动 
+虽然目差在缩小 但是棋盘也在缩小
+目前为止小申发挥的非常好
+黑棋扳了打吃 提 飞 都是好棋
+小申时间 3小时];B[dg]C[这个扳我们前面一直推荐的
+这个地方不知道狗会不会走跳
+本身跳也是让黑棋变得重一些]
+(;W[eh];B[ef];W[de];B[eg];W[cg];B[hh]C[下一步黑棋在中央一带行棋
+这个跟镇差不多];W[ii]C[下到这我们看出 当初小申的长就很关键 走出了类似龟甲的形状
+黑棋连攻带断
+吸取上一盘的教训 ai的棋是不能吃的 只能守空再守空
+变化图2 多了一三两个子 可以考虑黑五的冲
+变化图3 这样就战斗起来了 就乱了 
+小申很慎重 长考能有15分钟了吧 
+这盘棋明显要收到最后小官子了~]
+(;B[ih]C[真的冲了 ];W[jh]C[希望回头是岸];B[ji]C[小申听了棋友的 冲断了];W[ij];B[jj]C[黑棋的胜率第一次跌到了99以下
+这盘棋感觉又有点危险了];W[jk]C[小申忍了一盘棋了 最后想给大家展示一下];B[lj]C[跟狗堂堂正正的战斗一下
+他肯定知道退让是明显优势];W[if]C[他觉得冲断是可行的
+我们看在复杂的战斗 小申能否保持专注度 
+如果没有保持住 ai下出一些妙手 这个棋危矣
+黑棋现在必须下的好一些了 黑棋现在抓不住ai的大龙 
+看能不能把微弱的优势保持住了 
+现在预估胜率96左右]
+(;B[fh]C[扳一个 还可以 至少先保证自己不死棋 现在ai肯定是冲击黑棋了 ];W[gi]C[白棋先刺一下  高效补断
+这步棋对黑棋来说是巨大考验啊
+人类很容易想到粘 但是粘可以宣告这盘棋完蛋了
+断是好手 要妥协 但是人类很难想到啊]
+(;B[fi];W[kk];B[kj];W[fj]C[下到这 有点紧张了
+说好的避战 怎么冲动了];B[ei];W[lk]C[拐回去了  那中央被白棋冲 就漏了];B[mj]C[现在中间刚才有10目棋 现在无了];W[mk]
+(;B[nj]C[如果不能逮住ai大龙 那这10目认赔了];W[nk]C[首先黑棋得先虎一个认怂
+右下角被打了一长 双活出事了]
+(;B[om]C[忍住了];W[gh]C[白棋这个冲 没理解 黑的挡住呢？
+白的意思是这样弃子 但这样小申就遇到了大麻烦 
+白棋这样龙也跑了
+这样就变成了极其细腻的半目胜负
+大家看变化图
+黑棋还有这个弯 也能出去 再断 这个变化也是很复杂 形成转换 变化图2
+无论怎样 现在小申要投入大量思考时间了]
+(;B[hg]C[我们就看看双方激烈战斗以何种方式收场]
+(;W[oe]C[ai先打将];B[qe]C[这盘棋最精彩纷呈的部分来了~我们拭目以待 这需要非常强的计算力];W[rf];B[ra]C[这俩是先手
+黑棋都应住];W[nn];B[on]C[ai开始打将啊
+好消息啊对于人来讲];W[gg];B[hf];W[he];B[gf];W[ie]C[粘完肯定是断上去 
+有可能形成转换
+就走这样的粘行不行呢
+可能也行 黑棋现在胜率在96-98之间
+图3 这个冲也可以 4和5是见合的状态
+现在冲了粘是非常简单的两个手段 
+这样白棋就要在中央补 上方就只能认怂
+图6 小申也在计算 拐是更狠的 ]
+(;B[hi];W[hj]C[小申走了一个完全没有想到的图];B[kn]C[冲完打吃 这个完全没有问题];W[lp]C[那这样的话 黑棋下一步就要打吃了 稳稳收官了
+那小申中央发挥的很好啊 一度我们认为很悬 
+图1 点了之后 往白棋下面空钻一钻
+断很危险 不推荐 最好的还是图2 
+时间方面 小申还有2小时 还很富裕 这个地方对他也不难 被冲动就行]
+(;B[il]C[我们刚才推荐的 点了一吃];W[im]C[这步棋 是失误嘛？
+狗狗下的很快
+它要搅局了 我们看这个地方 小申能否一举制胜
+小申慢慢想 别着急 最简单就是长 ]
+(;B[hl]C[长了];W[gl]C[这小申头大如斗
+严重出乎了小申的意料 
+一下这个棋要进入最后半目一目的争夺了可能
+刚才觉得小申要赢 现在又悬了/"wn];B[hm]C[拐出
+白棋的胜率可能要上10了
+现在白棋拐这个 还是贴呢];W[gm]C[我们看这个地方小申能不能顶住
+黑棋扳 白棋断 这狗就死了 图1
+但我觉得katago没有这么容易就缴械投降~
+图二 白6长 被提花很夸张]
+(;B[km]C[实战打吃 但愿能稳住 有点紧张~];W[jm]C[这一顶不就明显断了嘛
+只能说非常混乱的形势了
+黑不保险了 这白明显顶断
+198  202 下的太快了
+考虑到这个地方的复杂程度 人类更危险的一方
+我预测小申要进行20分钟以上的大长考 千万别秒拍了
+这样黑的冲可以吗？
+如果冲可以成立 那可以宣布小申获胜了 从我摆的变化来看 白棋不行 但这里面有很多变化的
+图3 下到这黑的一气滚死了
+图4 不知道能不能把狗的棋吃掉
+> 古剑焚寂 9段: 长的话被贴住好像是转换
+长就乱了
+图5更简单一些 黑的也可以]
+(;B[gn]C[扳了一个 应该也行
+可能转换了
+刚才冲的话有可能一举制胜啊];W[gj]C[白棋粘一下 下一步它要吃黑棋了]
+(;B[ff];W[oj];B[oi];W[rd];B[sd]C[狗开始打将了]
+(;W[hn]C[白棋断 黑棋追究上方
+白上面这是彻底挡不住了 ];B[hd]C[先把白棋上面冲漏 非常愉快];W[kf]C[上面大概进了9目棋 还有一堆劫财
+现在就看小申怎么收官];B[je];W[ge];B[gd]C[感觉要赢啊~ ]
+(;W[sc];B[sb]C[这样的话黑棋已经胜率到99了
+狗已经处于癫狂的边缘];W[fe]C[狗很无奈
+只能自己单官连回
+我们很可能要见证历史了];B[gk]C[挖一个 问题不大];W[fn]C[只要上方能冲漏白棋 就可以了];B[fk];W[jn]C[小申在接近胜利的时候也是很谨慎
+应该很快会结束了];B[go]C[好 长了
+ai应该马上认了];W[ik]C[黑棋先吃 
+这样黑棋肯定是赢了 图1
+图2 白棋大龙求死图
+越是接近胜利就越要冷静下来]
+(;B[fd];W[ee];B[fm];W[dh];B[fg]C[后面进程就快了 一本道];W[ed];B[la]
+(;W[sq];B[rp];W[ej]C[katago选择补上面 那下面就漏了];B[di]C[我们可以给小申开香槟了~
+轮到狗狗调整心情了];W[kb]C[小申估计是想最后再判断下形势];B[hp];W[kl]C[还要追求嘛？];B[iq];W[ir]C[扳了接住 没问题];B[eo]C[今天见证历史 第一盘输的很惨 第二盘应该说没人看好小申能赢
+今天小申可以说发挥很好 中间其实几度可以获胜的机会
+小申表情很沉稳]
+(;W[fo];B[en];W[gq];B[ip];W[rj];B[jr];W[jq];B[gs]C[我点黑棋55目 白棋51目];W[js];B[rk]C[我们静静的等待双方下完];W[sk];B[rg];W[sh]C[这局目差不大 双方兢兢业业收完最后一子];B[gp];W[hr];B[sl];W[jl];B[fl]C[悬念留到了后天 第三局];W[sj]C[从katago的角度来讲 第三盘它可能就不会选择芈刀了];B[ph]C[尽量避开人类熟悉的套路];W[qh]C[反之人要避开战斗
+可以说 小申这盘没有出现太大的纰漏];B[gc];W[gb];B[pk];W[ka];B[ma];W[kr];B[hs];W[is];B[fs];W[ki];B[ni];W[jf];B[me]C[选择最稳的粘];W[li];B[ke];W[rf];B[jp]C[> 音落 9段: 可以开香槟了];W[ne]C[我们很早就可以开了其实/"xyx];B[qa];W[nl];B[nm];W[rg];B[dk];W[nf];B[ho];W[in];B[gm]C[进入数子阶段];W[sp];B[ol];W[kp];B[jo];W[hk];B[io];W[nd];B[mi];W[ig]C[黑棋胜4.5目
+首先恭喜申真谞获得第二盘的胜利
+这盘棋应该说小申战略选择明智
+一上来芈式飞刀 占据四分之一棋盘
+后面小申选择最稳健的策略行棋
+一直到157手的时候黑棋都是采取稳扎稳打的策略
+158  160冲断 挑起了这盘棋第一次正面战斗
+这个战斗中 虽然看起来比较复杂的 狗狗的胜率也在上升
+但是申真谞还是非常的沉着冷静
+始终没有下出问题手
+204扳和206粘这个组合拳是胜招
+下到228的时候 下面和上面两处官子形成见合
+申真谞锁定胜局
+那么这么盘棋可以说是小申完胜的一局
+双方战为1:1平 
+21日第三局就更加具备悬念色彩
+我是今天的解说李康 我们今天解说到这里就结束 感谢大家观看/"mg])
+(;W[fo];B[en];W[gq];B[ip];W[rj];B[jr];W[jq];B[gs];W[js];B[gp];W[hr];B[rk]))
+(;W[kb];B[lo];W[jl];B[fl];W[ho];B[gp];W[gq];B[hp];W[ip];B[iq];W[jp];B[ir]))
+(;B[fm];W[kl];B[fd];W[ee];B[ec];W[fb];B[ed];W[db];B[io])
+(;B[fm];W[kl];B[fd];W[ed];B[ee];W[rj];B[ph];W[qh];B[si])
+(;B[fm];W[kl];B[fd];W[ee];B[ec];W[fb];B[ed];W[db];B[io])
+(;B[fm];W[kl];B[fd];W[ed];B[ee];W[rj];B[jf];W[ig];B[dh];W[rk];B[rg];W[rl];B[qm];W[rf];B[gc];W[gb];B[ec];W[fb];B[la];W[kb];B[bf];W[be];B[bg];W[bh];B[ah];W[af];B[di]))
+(;W[fe];B[fd];W[ee];B[ec];W[fb];B[ed];W[db];B[jo];W[in];B[lo];W[ln];B[jp];W[jq];B[jn]))
+(;W[hn];B[hd];W[ge];B[gd];W[fe];B[fd];W[ee];B[ec];W[fb];B[ed];W[db]))
+(;B[fg];W[hn];B[in];W[jn];B[ho];W[fn];B[lo];W[jl];B[jo];W[kp]))
+(;B[jl];W[kl];B[lo];W[jo];B[hn];W[io];B[gn];W[fn];B[ik];W[hk];B[gk];W[gj];B[fm];W[fk];B[fl])
+(;B[jl];W[kl];B[lo];W[jo];B[hn];W[io];B[gn];W[fn];B[ik];W[go];B[gk];W[fk];B[fl];W[fm];B[ej];W[gj];B[fg])
+(;B[jl];W[kl];B[lo];W[in];B[jo];W[ln];B[hn];W[io];B[ho];W[ip];B[fn];W[gj];B[fg];W[gn];B[go];W[fo];B[gk];W[fk];B[fl];W[hk];B[fm])
+(;B[jl];W[kl];B[lo];W[jo];B[hn];W[in];B[gk];W[fk];B[go])
+(;B[jl];W[kl];B[lo];W[jo];B[hn];W[in];B[io];W[jn];B[fn];W[gj];B[gn];W[fg];B[dh];W[ff];B[ik]))
+(;B[gn];W[hn];B[in];W[ho];B[kl];W[gj];B[fg];W[ik];B[fn])
+(;B[gn];W[hn];B[in];W[gj];B[fg];W[jm];B[ho];W[fn];B[fm];W[fl]))
+(;B[hl];W[km];B[hm];W[ik];B[jm];W[kl];B[in]))
+(;B[il];W[ik];B[km];W[hl];B[im];W[hm];B[in];W[hn];B[ip])
+(;B[km];W[im];B[in];W[hn];B[jo])
+(;B[il];W[ik];B[km];W[hl];B[im];W[hm];B[in];W[hn];B[ip];W[hp];B[jp];W[jq]))
+(;B[ff];W[hd];B[ik];W[hk];B[il];W[hl];B[im];W[hm];B[kl])
+(;B[ff];W[hl];B[hd];W[ge];B[gd];W[fe];B[fd];W[ee];B[ec];W[ed];B[gc])
+(;B[hd];W[ge];B[ff];W[gd];B[ik])
+(;B[hd];W[ge];B[ff];W[ik];B[gd])
+(;B[hd];W[ge];B[ff];W[hm];B[gd];W[fe];B[fd];W[ee];B[ec];W[fb];B[ed];W[db];B[kl];W[jm];B[gn])
+(;B[ge];W[hd];B[ik];W[gj];B[hk]))
+(;W[gg];B[hf];W[he];B[gf];W[gj];B[ie];W[fg]))
+(;B[gg];W[hg];B[hi];W[gj];B[hj];W[ik];B[hk];W[hl];B[gk];W[gf];B[fg];W[gl];B[fk];W[he])
+(;B[hg];W[gg];B[hf];W[he];B[gf];W[ie];B[ik];W[gj];B[il];W[gl];B[jm];W[fg];B[dh];W[ff]))
+(;B[ik];W[on];B[nn];W[om]))
+(;B[nj];W[nk];B[om];W[ik];B[he]))
+(;B[ik];W[hk];B[il];W[gh];B[dh]))
+(;B[fh];W[kk];B[kj];W[lk];B[mj];W[mk]))
+(;B[hi];W[ij];B[hj];W[ik];B[jm];W[rf];B[qe];W[mj])
+(;B[hi];W[ij];B[hj];W[ik];B[dh];W[di];B[ei];W[fh];B[gg];W[fi];B[ej];W[fg];B[ff];W[gf];B[ge];W[hf];B[fe])
+(;B[ih];W[jh];B[ji];W[ij];B[jj];W[jk];B[lj];W[kk];B[kj];W[hf]))
+(;W[eh])
+(;W[eh];B[ef];W[de];B[eg];W[cg];B[hg]))
+(;B[dg];W[cg];B[ef];W[de];B[lf];W[mf];B[lg];W[mg];B[kh]))
+(;W[oe];B[qe];W[rf];B[ra];W[jc];B[id];W[kb];B[dg];W[cg];B[ef];W[de]))
+(;B[dq];W[jc];B[id];W[kb];B[dg];W[cg];B[ef];W[de];B[jm]))
+(;B[rb];W[pa];B[nb];W[od];B[nc];W[pe];B[qe];W[oe];B[ra])
+(;B[nb];W[pa];B[rb];W[od];B[nc];W[pe];B[qe];W[oe];B[ra]))
+(;B[nb];W[od];B[oa];W[rd])
+(;B[qb];W[jc];B[id];W[kb];B[lb];W[ja];B[io];W[nc];B[od];W[mb];B[nd];W[nb])
+(;B[qb];W[ak];B[al];W[aj];B[bl];W[jc];B[id];W[kb];B[lb];W[ja];B[dg];W[cg];B[ef];W[de];B[lf];W[mf];B[ji]))
+(;B[bl];W[cj];B[bk])
+(;B[el];W[cj];B[bk];W[bj];B[dj];W[ci];B[ek];W[ak];B[al];W[aj];B[bl]))
+(;B[cl])
+(;B[dl];W[cj];B[bk])
+(;B[dl];W[cj];B[dj];W[ek];B[ci];W[cl];B[bj];W[bk];B[cj];W[dm];B[bl];W[el];B[cm]))
+(;W[pc];B[nb];W[od];B[oa];W[rc];B[oe]))
+(;B[qd];W[pc];B[nb];W[od];B[oa];W[ne];B[rc]))
+(;B[se];W[jc];B[id];W[kb];B[lb];W[ja];B[bh];W[qc];B[qd];W[pc];B[nb]))
+(;B[id])
+(;B[dg];W[cg];B[ef];W[bf];B[id]))
+(;W[mh];B[pi];W[mf];B[id]))
+(;B[jh];W[ki];B[ij];W[kk];B[kn])
+(;B[jh];W[lj];B[ki];W[li];B[jk];W[rh];B[sf];W[oi]))

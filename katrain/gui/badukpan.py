@@ -1038,14 +1038,15 @@ class BadukPanWidget(Widget):
 
                         if engine_best_move:
                             top_move_coords = move.coords
-                            Color(*Theme.TOP_MOVE_BORDER_COLOR)
+                            # 魔改: 最优解的圆圈改用「下一手棋子的颜色」(黑/白) 标记, 一眼看出该谁下
+                            Color(*Theme.STONE_COLORS[next_player][:3], 0.65)
                             Line(
                                 circle=(
                                     self.gridpos[move.coords[1]][move.coords[0]][0],
                                     self.gridpos[move.coords[1]][move.coords[0]][1],
-                                    self.stone_size - dp(1.2),
+                                    self.stone_size - dp(2),
                                 ),
-                                width=dp(1.2),
+                                width=dp(2),
                             )
 
             # children of current moves in undo / review
